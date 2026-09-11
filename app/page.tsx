@@ -114,6 +114,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchPlace[]>(starterPlaces);
   const [searchState, setSearchState] = useState<"idle" | "loading" | "error">("idle");
+  const [directAdding, setDirectAdding] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [tripOpen, setTripOpen] = useState(false);
@@ -201,6 +202,26 @@ export default function Home() {
     setDialogOpen(false);
     setQuery("");
     showNotice(`${place.name} 已加入 ${days[activeDay].date}`);
+  };
+
+  const addDirectAddress = async () => {
+    const address = query.trim();
+    if (!address || directAdding) return;
+    setDirectAdding(true);
+    try {
+      const place = await mapRef.current?.resolveAddress(address);
+      if (!place) {
+        setSearchState("error");
+        showNotice("未能解析这个地址，请补充城市、街道或门牌号");
+        return;
+      }
+      addPlace(place);
+    } catch {
+      setSearchState("error");
+      showNotice("地址解析暂时不可用，请稍后再试");
+    } finally {
+      setDirectAdding(false);
+    }
   };
 
   const optimizeRoute = async () => {
@@ -299,12 +320,13 @@ export default function Home() {
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild><button className="add-plan-button" type="button"><Plus size={18} /> 添加地点或安排</button></DialogTrigger>
             <DialogContent className="add-dialog">
-              <DialogHeader><DialogTitle>搜索高德地点</DialogTitle><DialogDescription>支持国内城市和详细地址，选中后加入 {days[activeDay].date}。</DialogDescription></DialogHeader>
-              <label className="dialog-search"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：上海天文馆、安福路咖啡" /></label>
-              <div className="search-status">{searchState === "loading" ? "正在搜索高德地点…" : query.length < 2 ? "推荐地点" : searchResults.length ? `找到 ${searchResults.length} 个地点` : ""}</div>
+              <DialogHeader><DialogTitle>搜索地点或地址</DialogTitle><DialogDescription>全国搜索；选择结果或按回车，即可直接加入 {days[activeDay].date}。</DialogDescription></DialogHeader>
+              <label className="dialog-search"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addDirectAddress(); } }} placeholder="例如：连云港、武康路 115 号" /></label>
+              <div className="search-status">{directAdding ? "正在解析地址…" : searchState === "loading" ? "正在搜索高德地点…" : query.length < 2 ? "推荐地点" : searchResults.length ? `找到 ${searchResults.length} 个地点` : "也可以直接添加这个地址"}</div>
               <div className="suggestion-list">
+                {query.trim() && <button type="button" className="direct-address-result" disabled={directAdding} onClick={() => void addDirectAddress()}><span className="suggestion-icon"><MapPin size={17} /></span><span><strong>直接添加“{query.trim()}”</strong><small>按地址解析后加入当前日期</small></span><Plus size={17} /></button>}
                 {searchResults.map((place) => <button type="button" key={place.id} onClick={() => addPlace(place)}><span className="suggestion-icon"><MapPin size={17} /></span><span><strong>{place.name}</strong><small>{place.district} · {place.address}</small></span><Plus size={17} /></button>)}
-                {searchState === "error" && <div className="search-empty">没有找到相关地点，换个关键词试试</div>}
+                {searchState === "error" && !query.trim() && <div className="search-empty">没有找到相关地点，换个关键词试试</div>}
               </div>
             </DialogContent>
           </Dialog>
@@ -312,7 +334,7 @@ export default function Home() {
 
         <section className={`map-panel ${mobilePanel === "map" ? "mobile-visible" : ""}`} aria-label="行程地图">
           <AMapCanvas ref={mapRef} items={items} selectedId={selected?.id ?? null} onSelect={selectItem} onConnectionChange={setMapConnected} />
-          <div className="map-search-wrap"><button className="map-search" type="button" onClick={() => setDialogOpen(true)}><Search size={18} /><span>搜索上海的地点、餐厅或地址</span><kbd>⌘ K</kbd></button></div>
+          <div className="map-search-wrap"><button className="map-search" type="button" onClick={() => setDialogOpen(true)}><Search size={18} /><span>搜索地点或地址，直接加入行程</span><kbd>⌘ K</kbd></button></div>
           <div className="map-provider-pill"><span className="live-dot" />{mapConnected ? "高德地图已连接" : "正在连接高德地图"}</div>
           <div className="map-controls" aria-label="地图控制">
             <button type="button" aria-label="放大" onClick={() => mapRef.current?.zoomIn()}><ZoomIn size={19} /></button><button type="button" aria-label="缩小" onClick={() => mapRef.current?.zoomOut()}><ZoomOut size={19} /></button><span />

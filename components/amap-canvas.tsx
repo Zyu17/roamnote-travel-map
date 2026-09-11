@@ -24,6 +24,7 @@ export type RouteResult = { distance: number; duration: number };
 
 export type AMapHandle = {
   searchPlaces: (keyword: string) => Promise<SearchPlace[]>;
+  resolveAddress: (address: string) => Promise<SearchPlace | null>;
   planRoute: (routeItems: MapItem[]) => Promise<RouteResult>;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -114,7 +115,7 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
       const script = existing ?? document.createElement("script");
       if (!existing) {
         script.dataset.roamnoteAmap = "true";
-        script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.PlaceSearch,AMap.Driving,AMap.Geolocation`;
+        script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.PlaceSearch,AMap.Driving,AMap.Geolocation,AMap.Geocoder`;
         script.async = true;
         document.head.appendChild(script);
       }
@@ -158,10 +159,11 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
       return new Promise((resolve, reject) => {
         if (!window.AMap || !mapRef.current) return reject(new Error("地图还在加载"));
         window.AMap.plugin("AMap.PlaceSearch", () => {
-          const service = new window.AMap.PlaceSearch({ city: "上海", citylimit: false, pageSize: 8, pageIndex: 1, extensions: "base" });
+          const service = new window.AMap.PlaceSearch({ city: "全国", citylimit: false, pageSize: 8, pageIndex: 1, extensions: "base" });
           service.search(keyword, (status: string, result: any) => {
             const pois = result?.poiList?.pois ?? [];
-            if (status !== "complete") return reject(new Error(status === "no_data" ? "没有找到相关地点" : "地点搜索失败"));
+            if (status === "no_data") return resolve([]);
+            if (status !== "complete") return reject(new Error("地点搜索失败"));
             resolve(pois.filter((poi: any) => poi.location).map((poi: any) => ({
               id: String(poi.id ?? `${poi.name}-${poi.location.lng}`),
               name: String(poi.name ?? "未命名地点"),
@@ -170,6 +172,31 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
               type: String(poi.type ?? ""),
               lnglat: [Number(poi.location.lng), Number(poi.location.lat)] as [number, number],
             })));
+          });
+        });
+      });
+    },
+    resolveAddress(address) {
+      return new Promise((resolve, reject) => {
+        if (!window.AMap || !mapRef.current) return reject(new Error("地图还在加载"));
+        window.AMap.plugin("AMap.Geocoder", () => {
+          const geocoder = new window.AMap.Geocoder({ city: "全国" });
+          geocoder.getLocation(address, (status: string, result: any) => {
+            const geocode = result?.geocodes?.[0];
+            const location = geocode?.location;
+            if (status !== "complete" || !location) return resolve(null);
+            const lng = Number(location.lng ?? location.getLng?.());
+            const lat = Number(location.lat ?? location.getLat?.());
+            if (!Number.isFinite(lng) || !Number.isFinite(lat)) return resolve(null);
+            const formattedAddress = String(geocode.formattedAddress ?? address);
+            resolve({
+              id: `address-${lng}-${lat}-${Date.now()}`,
+              name: String(geocode.level === "省" || geocode.level === "市" ? address : formattedAddress),
+              address: formattedAddress,
+              district: String(geocode.district ?? geocode.city ?? geocode.province ?? ""),
+              type: String(geocode.level ?? "地址"),
+              lnglat: [lng, lat],
+            });
           });
         });
       });
