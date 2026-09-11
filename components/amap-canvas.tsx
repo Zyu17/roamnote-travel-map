@@ -110,7 +110,7 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
     };
     if (window.AMap) initialize();
     else {
-      window._AMapSecurityConfig = { serviceHost: `${window.location.origin}/_AMapService` };
+      window._AMapSecurityConfig = { serviceHost: `${window.location.origin}/api/amap-proxy` };
       const existing = document.querySelector<HTMLScriptElement>('script[data-roamnote-amap="true"]');
       const script = existing ?? document.createElement("script");
       if (!existing) {
