@@ -163,8 +163,12 @@ export default function Home() {
     const timer = window.setTimeout(async () => {
       setSearchState("loading");
       try {
-        const results = await mapRef.current?.searchPlaces(cleaned);
-        setSearchResults(results?.length ? results : []);
+        const [places, geocode] = await Promise.all([
+          mapRef.current?.searchPlaces(cleaned) ?? Promise.resolve([]),
+          mapRef.current?.resolveAddress(cleaned) ?? Promise.resolve(null),
+        ]);
+        const addressResult = geocode && !places.some((place) => Math.abs(place.lnglat[0] - geocode.lnglat[0]) < .0001 && Math.abs(place.lnglat[1] - geocode.lnglat[1]) < .0001) ? [geocode] : [];
+        setSearchResults([...places, ...addressResult].slice(0, 8));
         setSearchState("idle");
       } catch { setSearchResults([]); setSearchState("error"); }
     }, 360);
@@ -322,7 +326,7 @@ export default function Home() {
             <DialogContent className="add-dialog">
               <DialogHeader><DialogTitle>搜索地点或地址</DialogTitle><DialogDescription>全国搜索；选择结果或按回车，即可直接加入 {days[activeDay].date}。</DialogDescription></DialogHeader>
               <label className="dialog-search"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addDirectAddress(); } }} placeholder="例如：连云港、武康路 115 号" /></label>
-              <div className="search-status">{directAdding ? "正在解析地址…" : searchState === "loading" ? "正在搜索高德地点…" : query.length < 2 ? "推荐地点" : searchResults.length ? `找到 ${searchResults.length} 个地点` : "也可以直接添加这个地址"}</div>
+              <div className="search-status">{directAdding ? "正在解析地址…" : searchState === "loading" ? "正在搜索高德地点…" : query.length < 2 ? "推荐地点" : searchResults.length ? `找到 ${searchResults.length} 个可添加地点` : searchState === "error" ? "高德搜索暂时未返回结果，可尝试直接解析地址" : "没有匹配的地点，可直接解析这个地址"}</div>
               <div className="suggestion-list">
                 {query.trim() && <button type="button" className="direct-address-result" disabled={directAdding} onClick={() => void addDirectAddress()}><span className="suggestion-icon"><MapPin size={17} /></span><span><strong>直接添加“{query.trim()}”</strong><small>按地址解析后加入当前日期</small></span><Plus size={17} /></button>}
                 {searchResults.map((place) => <button type="button" key={place.id} onClick={() => addPlace(place)}><span className="suggestion-icon"><MapPin size={17} /></span><span><strong>{place.name}</strong><small>{place.district} · {place.address}</small></span><Plus size={17} /></button>)}
