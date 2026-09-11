@@ -4,17 +4,26 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 type MapItem = { id: number; title: string; category: "sight" | "food" | "stay" | "transit"; position: { left: string; top: string }; lnglat: [number, number] };
-type Props = { items: MapItem[]; selectedId: number | null; onSelect: (item: MapItem) => void };
+type Props = { items: MapItem[]; selectedId: number | null; onSelect: (item: MapItem) => void; onConnectionChange: (connected: boolean) => void };
 
 declare global { interface Window { AMap?: any; _AMapSecurityConfig?: { serviceHost?: string; securityJsCode?: string } } }
 
 const colors = { sight: "#ef725f", food: "#e9a83f", stay: "#173d38", transit: "#477f9e" };
 
-export function AMapCanvas({ items, selectedId, onSelect }: Props) {
+export function AMapCanvas({ items, selectedId, onSelect, onConnectionChange }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const key = process.env.NEXT_PUBLIC_AMAP_JS_KEY;
+  const [key, setKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/map-config")
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("map config unavailable")))
+      .then((config: { amapJsKey?: string }) => { if (active) setKey(config.amapJsKey ?? null); })
+      .catch(() => { if (active) setLoadFailed(true); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!key || !hostRef.current) return;
@@ -34,13 +43,14 @@ export function AMapCanvas({ items, selectedId, onSelect }: Props) {
         const route = new window.AMap.Polyline({ path: items.map((item) => item.lnglat), strokeColor: "#173d38", strokeWeight: 5, strokeOpacity: .82, showDir: true, lineJoin: "round" });
         map.add(route); map.setFitView([...markers, route], false, [110, 110, 110, 390]);
       }
+      onConnectionChange(true);
     };
     if (window.AMap) { render(); return () => { cancelled = true; }; }
     window._AMapSecurityConfig = { serviceHost: `${window.location.origin}/_AMapService` };
     const script = document.createElement("script");
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}`; script.async = true; script.onload = render; script.onerror = () => setLoadFailed(true); document.head.appendChild(script);
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}`; script.async = true; script.onload = render; script.onerror = () => { setLoadFailed(true); onConnectionChange(false); }; document.head.appendChild(script);
     return () => { cancelled = true; mapRef.current?.destroy?.(); };
-  }, [key, items, onSelect, selectedId]);
+  }, [key, items, onConnectionChange, onSelect, selectedId]);
 
   if (key && !loadFailed) return <div ref={hostRef} className="real-map" />;
   return <div className="demo-map" aria-label="上海行程演示地图">

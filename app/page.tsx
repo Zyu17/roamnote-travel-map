@@ -51,6 +51,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"map" | "plan">("map");
+  const [mapConnected, setMapConnected] = useState(false);
   const filteredSuggestions = useMemo(() => suggestions.filter((item) => item.name.includes(query) || item.area.includes(query)), [query]);
 
   const addSuggestion = (suggestion: (typeof suggestions)[number]) => {
@@ -158,9 +159,9 @@ export default function Home() {
         </aside>
 
         <section className={`map-panel ${mobilePanel === "map" ? "mobile-visible" : ""}`} aria-label="行程地图">
-          <AMapCanvas items={items} selectedId={selected?.id ?? null} onSelect={(item) => setSelected(item as PlanItem)} />
+          <AMapCanvas items={items} selectedId={selected?.id ?? null} onSelect={(item) => setSelected(item as PlanItem)} onConnectionChange={setMapConnected} />
           <div className="map-search-wrap"><label className="map-search"><Search size={18} /><input placeholder="搜索上海的地点、餐厅或地址" onFocus={() => setDialogOpen(true)} /><kbd>⌘ K</kbd></label></div>
-          <div className="map-provider-pill"><span className="live-dot" />{process.env.NEXT_PUBLIC_AMAP_JS_KEY ? "高德地图已连接" : "演示地图 · 配置 Key 后连接高德"}</div>
+          <div className="map-provider-pill"><span className="live-dot" />{mapConnected ? "高德地图已连接" : "正在连接高德地图"}</div>
           <div className="map-controls" aria-label="地图控制"><button type="button" aria-label="放大"><ZoomIn size={19} /></button><button type="button" aria-label="缩小"><ZoomOut size={19} /></button><span /><button type="button" aria-label="定位"><LocateFixed size={19} /></button><button type="button" aria-label="图层"><Layers3 size={19} /></button></div>
           <div className="map-legend">{Object.entries(categoryStyle).map(([key, value]) => { const Icon = value.icon; return <span key={key}><i className={value.className}><Icon size={12} /></i>{value.label}</span>; })}</div>
           <aside className="place-card" aria-live="polite">
