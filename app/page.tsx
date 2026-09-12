@@ -5,11 +5,13 @@ import {
   BedDouble, CalendarDays, Check, ChevronDown, Clock3, Compass, Ellipsis,
   Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin,
   MessageCircle, Navigation, Plus, Search, Share2, Sparkles, Star,
-  TrainFront, Utensils, Users, X, ZoomIn, ZoomOut,
+  TrainFront, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import { Calendar } from "@/components/ui/calendar";
+import type { DateRange } from "react-day-picker";
 import { AMapCanvas, type AMapHandle, type MapItem, type SearchPlace } from "@/components/amap-canvas";
 
 type Category = "sight" | "food" | "stay" | "transit";
@@ -143,13 +145,18 @@ function optimizeByDistance(items: PlanItem[]) {
 export default function Home() {
   const mapRef = useRef<AMapHandle>(null);
   const draggedId = useRef<number | null>(null);
+  const daySwipeStart = useRef<number | null>(null);
   const [activeDay, setActiveDay] = useState(1);
   const [plans, setPlans] = useState<Plans>(initialPlans);
   const [dateRange, setDateRange] = useState(DEFAULT_DATE_RANGE);
   const [dateDraft, setDateDraft] = useState(DEFAULT_DATE_RANGE);
   const [dateOpen, setDateOpen] = useState(false);
+  const [dayPage, setDayPage] = useState(0);
   const days = useMemo(() => buildDays(dateRange.start, dateRange.end), [dateRange]);
   const tripDateLabel = useMemo(() => formatDateRange(days), [days]);
+  const datePickerRange = useMemo<DateRange>(() => ({ from: parseLocalDate(dateDraft.start), to: parseLocalDate(dateDraft.end) }), [dateDraft]);
+  const pageCount = Math.max(1, Math.ceil(days.length / 3));
+  const visibleDays = days.slice(dayPage * 3, dayPage * 3 + 3);
   const items = plans[activeDay] ?? [];
   const [selectedId, setSelectedId] = useState<number | null>(initialPlans[1][2].id);
   const selected = items.find((item) => item.id === selectedId) ?? null;
@@ -210,6 +217,14 @@ export default function Home() {
   }, [days.length]);
 
   useEffect(() => {
+    setDayPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+
+  useEffect(() => {
+    setDayPage(Math.floor(activeDay / 3));
+  }, [activeDay]);
+
+  useEffect(() => {
     const first = plans[activeDay]?.[0];
     setSelectedId(first?.id ?? null);
     window.setTimeout(() => mapRef.current?.fitToItems(), 80);
@@ -250,6 +265,26 @@ export default function Home() {
   const openDateEditor = () => {
     setDateDraft(dateRange);
     setDateOpen(true);
+  };
+
+  const selectDay = (index: number) => {
+    setActiveDay(index);
+    setDayPage(Math.floor(index / 3));
+  };
+
+  const moveDayPage = (direction: -1 | 1) => {
+    setDayPage((current) => {
+      const next = Math.max(0, Math.min(pageCount - 1, current + direction));
+      if (next !== current) setActiveDay(next * 3);
+      return next;
+    });
+  };
+
+  const chooseDateRange = (range: DateRange | undefined) => {
+    if (!range?.from) return;
+    const start = toIsoDate(range.from);
+    const end = toIsoDate(range.to ?? range.from);
+    setDateDraft({ start, end });
   };
 
   const saveDateRange = () => {
@@ -391,8 +426,13 @@ export default function Home() {
       <section className="workspace">
         <aside className={`plan-panel ${mobilePanel === "plan" ? "mobile-visible" : ""}`}>
           <div className="plan-heading"><div><span className="eyebrow">{days.length} 日城市漫游</span><h1>我们的行程</h1></div><div className="plan-heading-actions"><button className="date-edit-button" aria-label="修改行程日期" type="button" onClick={openDateEditor}><CalendarDays size={15} /><span>日期</span></button><button className="soft-icon-button" aria-label="行程概览" type="button" onClick={() => setTripOpen(true)}><Ellipsis size={20} /></button></div></div>
-          <div className="day-tabs" role="tablist" aria-label="选择日期">
-            {days.map((day, index) => <button type="button" role="tab" aria-selected={activeDay === index} className={activeDay === index ? "day-tab active" : "day-tab"} key={day.iso} onClick={() => setActiveDay(index)}><span>{day.weekday}</span><strong>{day.shortDate}</strong><small>{plans[index]?.length ?? 0} 个安排</small></button>)}
+          <div className="date-navigator" onTouchStart={(event) => { daySwipeStart.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={(event) => { const start = daySwipeStart.current; const end = event.changedTouches[0]?.clientX; daySwipeStart.current = null; if (start === null || end === undefined || Math.abs(start - end) < 36) return; moveDayPage(start > end ? 1 : -1); }}>
+            <button className="day-page-button" type="button" aria-label="查看前三天" disabled={dayPage === 0} onClick={() => moveDayPage(-1)}><ChevronLeft size={18} /></button>
+            <div className="day-tabs" role="tablist" aria-label="选择日期">
+              {visibleDays.map((day, tabIndex) => { const index = dayPage * 3 + tabIndex; return <button type="button" role="tab" aria-selected={activeDay === index} className={activeDay === index ? "day-tab active" : "day-tab"} key={day.iso} onClick={() => selectDay(index)}><span>{day.weekday}</span><strong>{day.shortDate}</strong><small>{plans[index]?.length ?? 0} 个安排</small></button>; })}
+            </div>
+            <button className="day-page-button" type="button" aria-label="查看后三天" disabled={dayPage >= pageCount - 1} onClick={() => moveDayPage(1)}><ChevronRight size={18} /></button>
+            <span className="day-page-status" aria-live="polite">第 {dayPage * 3 + 1}—{Math.min((dayPage + 1) * 3, days.length)} 天 / 共 {days.length} 天</span>
           </div>
           <div className="day-summary"><span><Footprints size={15} /> {stats.distance}</span><span><Clock3 size={15} /> {stats.duration}</span><button type="button" disabled={optimizing} onClick={optimizeRoute}><Sparkles size={15} /> {optimizing ? "计算中" : "优化路线"}</button></div>
           <div className="timeline" aria-label={`${days[activeDay].date}行程`}>
@@ -442,11 +482,11 @@ export default function Home() {
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}><DialogContent className="edit-dialog"><DialogHeader><DialogTitle>编辑 {selected?.title}</DialogTitle><DialogDescription>调整当天的到达时间、停留时长和同行备注。</DialogDescription></DialogHeader><div className="edit-grid"><label><span>到达时间</span><input value={editDraft.time} onChange={(event) => setEditDraft((current) => ({ ...current, time: event.target.value }))} /></label><label><span>停留时长</span><input value={editDraft.duration} onChange={(event) => setEditDraft((current) => ({ ...current, duration: event.target.value }))} /></label><label className="edit-note"><span>同行备注</span><textarea rows={4} value={editDraft.note} onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))} /></label></div><button className="dialog-primary" type="button" onClick={saveEdit}>保存安排</button></DialogContent></Dialog>
 
-      <Dialog open={dateOpen} onOpenChange={setDateOpen}><DialogContent className="date-dialog"><DialogHeader><DialogTitle>设置行程日期</DialogTitle><DialogDescription>选择出发和结束日期，会自动生成每天的行程页签，最多 14 天。</DialogDescription></DialogHeader><div className="date-range-grid"><label><span>出发日期</span><input type="date" value={dateDraft.start} onChange={(event) => setDateDraft((current) => ({ ...current, start: event.target.value, end: event.target.value > current.end ? event.target.value : current.end }))} /></label><span className="date-range-arrow">至</span><label><span>结束日期</span><input type="date" min={dateDraft.start} value={dateDraft.end} onChange={(event) => setDateDraft((current) => ({ ...current, end: event.target.value }))} /></label></div><div className="date-dialog-preview"><CalendarDays size={17} /><span>{formatDateRange(buildDays(dateDraft.start, dateDraft.end))}</span><small>{buildDays(dateDraft.start, dateDraft.end).length || 0} 天</small></div><button className="dialog-primary" type="button" onClick={saveDateRange}>保存行程日期</button></DialogContent></Dialog>
+      <Dialog open={dateOpen} onOpenChange={setDateOpen}><DialogContent className="date-dialog"><DialogHeader><DialogTitle>设置行程日期</DialogTitle><DialogDescription>点选出发日，再点选结束日。可直接翻月，最多 14 天。</DialogDescription></DialogHeader><div className="date-calendar-shell"><Calendar mode="range" selected={datePickerRange} onSelect={chooseDateRange} numberOfMonths={2} defaultMonth={parseLocalDate(dateDraft.start)} showOutsideDays={false} /></div><div className="date-range-summary"><span><small>出发</small><strong>{dateDraft.start.replaceAll("-", ".")}</strong></span><i /> <span><small>结束</small><strong>{dateDraft.end.replaceAll("-", ".")}</strong></span></div><div className="date-dialog-preview"><CalendarDays size={17} /><span>{formatDateRange(buildDays(dateDraft.start, dateDraft.end))}</span><small>{buildDays(dateDraft.start, dateDraft.end).length || 0} 天</small></div><button className="dialog-primary" type="button" onClick={saveDateRange}>保存行程日期</button></DialogContent></Dialog>
 
       <Dialog open={commentsOpen} onOpenChange={setCommentsOpen}><DialogContent className="comments-dialog"><DialogHeader><DialogTitle>同行讨论</DialogTitle><DialogDescription>和同行者确认预约、餐厅与路线变化。</DialogDescription></DialogHeader><div className="comment-list">{comments.map((comment, index) => <div className="comment" key={`${comment.author}-${index}`}><span className={`avatar ${comment.color}`}>{comment.author}</span><p><strong>{comment.author}</strong>{comment.text}</p></div>)}</div><div className="comment-compose"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="回复同行者…" /><button type="button" onClick={() => { if (!commentDraft.trim()) return; setComments((current) => [...current, { author: "予", color: "avatar-one", text: commentDraft.trim() }]); setCommentDraft(""); }}>发送</button></div></DialogContent></Dialog>
 
-      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="上海秋日旅行封面" /></div><DialogHeader><DialogTitle>上海 · 秋日周末</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, _day, index) => sum + (plans[index]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { setActiveDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[index]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
+      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="上海秋日旅行封面" /></div><DialogHeader><DialogTitle>上海 · 秋日周末</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, _day, index) => sum + (plans[index]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[index]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
 
       {notice && <div className="notice" role="status"><Check size={16} /> {notice}</div>}
     </main>
