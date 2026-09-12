@@ -23,7 +23,8 @@ export type PlanItem = MapItem & {
   note: string;
   address: string;
 };
-type Plans = Record<number, PlanItem[]>;
+type Plans = Record<string, PlanItem[]>;
+type IndexedPlans = Record<number, PlanItem[]>;
 
 const DEFAULT_DATE_RANGE = { start: "2025-10-17", end: "2025-10-19" };
 
@@ -68,7 +69,7 @@ function formatDateRange(days: ReturnType<typeof buildDays>) {
   return `${days[0].date}—${days.at(-1)?.date}`;
 }
 
-const initialPlans: Plans = {
+const initialPlanTemplates: IndexedPlans = {
   0: [
     { id: 101, time: "16:00", title: "上海虹桥站", meta: "抵达 · G135次", category: "transit", duration: "30分钟", note: "出站后乘坐地铁 10 号线前往酒店。", address: "闵行区申贵路1500号", position: { left: "24%", top: "58%" }, lnglat: [121.326, 31.2005] },
     { id: 102, time: "17:10", title: "静安昆仑大酒店", meta: "住宿 · 已预订", category: "stay", duration: "50分钟", note: "办理入住并放置行李，确认双床房。", address: "静安区华山路250号", position: { left: "47%", top: "45%" }, lnglat: [121.4436, 31.2183] },
@@ -88,6 +89,30 @@ const initialPlans: Plans = {
     { id: 204, time: "16:00", title: "上海中心大厦", meta: "城市景观 · 预计 1 小时", category: "sight", duration: "1小时", note: "天气晴朗时登顶，阴天则改为陆家嘴散步。", address: "浦东新区银城中路501号", position: { left: "73%", top: "39%" }, lnglat: [121.5055, 31.2335] },
   ],
 };
+
+function createInitialPlans(): Plans {
+  return Object.fromEntries(buildDays(DEFAULT_DATE_RANGE.start, DEFAULT_DATE_RANGE.end).map((day, index) => [day.iso, initialPlanTemplates[index] ?? []]));
+}
+
+function isDateKey(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function normalizeStoredPlans(value: unknown, storedRange: { start: string; end: string }): Plans {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return createInitialPlans();
+  const records = value as Record<string, unknown>;
+  const mapped: Plans = {};
+  const legacyDays = buildDays(storedRange.start, storedRange.end);
+  for (const [key, items] of Object.entries(records)) {
+    if (!Array.isArray(items)) continue;
+    if (isDateKey(key)) mapped[key] = items as PlanItem[];
+    else if (/^\d+$/.test(key)) {
+      const legacyDate = legacyDays[Number(key)]?.iso;
+      if (legacyDate) mapped[legacyDate] = items as PlanItem[];
+    }
+  }
+  return Object.keys(mapped).length ? mapped : createInitialPlans();
+}
 
 const categoryStyle: Record<Category, { icon: typeof MapPin; label: string; className: string }> = {
   sight: { icon: Star, label: "游玩", className: "marker-coral" },
@@ -148,7 +173,7 @@ export default function Home() {
   const draggedId = useRef<number | null>(null);
   const daySwipeStart = useRef<number | null>(null);
   const [activeDay, setActiveDay] = useState(1);
-  const [plans, setPlans] = useState<Plans>(initialPlans);
+  const [plans, setPlans] = useState<Plans>(createInitialPlans);
   const [dateRange, setDateRange] = useState(DEFAULT_DATE_RANGE);
   const [dateDraft, setDateDraft] = useState(DEFAULT_DATE_RANGE);
   const [dateOpen, setDateOpen] = useState(false);
@@ -159,8 +184,9 @@ export default function Home() {
   const datePickerRange = useMemo<DateRange>(() => ({ from: parseLocalDate(dateDraft.start), to: parseLocalDate(dateDraft.end) }), [dateDraft]);
   const pageCount = Math.max(1, Math.ceil(days.length / 3));
   const visibleDays = days.slice(dayPage * 3, dayPage * 3 + 3);
-  const items = plans[activeDay] ?? [];
-  const [selectedId, setSelectedId] = useState<number | null>(initialPlans[1][2].id);
+  const activeDate = days[activeDay]?.iso;
+  const items = activeDate ? plans[activeDate] ?? [] : [];
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchPlace[]>(starterPlaces);
@@ -172,7 +198,7 @@ export default function Home() {
   const [editOpen, setEditOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"map" | "plan">("map");
   const [mapConnected, setMapConnected] = useState(false);
-  const [routeInfo, setRouteInfo] = useState<Record<number, { distance: number; duration: number }>>({});
+  const [routeInfo, setRouteInfo] = useState<Record<string, { distance: number; duration: number }>>({});
   const [optimizing, setOptimizing] = useState(false);
   const [notice, setNotice] = useState("");
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
@@ -182,31 +208,33 @@ export default function Home() {
   const [storageReady, setStorageReady] = useState(false);
 
   const stats = useMemo(() => {
-    const actual = routeInfo[activeDay];
+    const actual = activeDate ? routeInfo[activeDate] : undefined;
     const distance = actual?.distance || approximateDistance(items);
     const duration = actual?.duration || Math.max(1, Math.round(distance / 4500 * 3600));
     return { distance: `${(distance / 1000).toFixed(1)} 公里`, duration: `约 ${Math.max(1, Math.round(duration / 3600))} 小时` };
-  }, [activeDay, items, routeInfo]);
+  }, [activeDate, items, routeInfo]);
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem("roamnote-plans-v2");
-      if (saved) setPlans(JSON.parse(saved));
+      let storedRange = DEFAULT_DATE_RANGE;
       const savedDates = window.localStorage.getItem("roamnote-dates-v1");
       if (savedDates) {
         const value = JSON.parse(savedDates) as { start?: string; end?: string };
         if (value.start && value.end && buildDays(value.start, value.end).length) {
-          setDateRange({ start: value.start, end: value.end });
-          setDateDraft({ start: value.start, end: value.end });
+          storedRange = { start: value.start, end: value.end };
+          setDateRange(storedRange);
+          setDateDraft(storedRange);
         }
       }
+      const saved = window.localStorage.getItem("roamnote-plans-v3") ?? window.localStorage.getItem("roamnote-plans-v2");
+      if (saved) setPlans(normalizeStoredPlans(JSON.parse(saved), storedRange));
     } catch { /* Device storage is optional. */ }
     setStorageReady(true);
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
-    try { window.localStorage.setItem("roamnote-plans-v2", JSON.stringify(plans)); } catch { /* Device storage is optional. */ }
+    try { window.localStorage.setItem("roamnote-plans-v3", JSON.stringify(plans)); } catch { /* Device storage is optional. */ }
   }, [plans, storageReady]);
 
   useEffect(() => {
@@ -227,10 +255,10 @@ export default function Home() {
   }, [activeDay]);
 
   useEffect(() => {
-    const first = plans[activeDay]?.[0];
+    const first = activeDate ? plans[activeDate]?.[0] : undefined;
     setSelectedId(first?.id ?? null);
     window.setTimeout(() => mapRef.current?.fitToItems(), 80);
-  }, [activeDay]);
+  }, [activeDate, storageReady]);
 
   useEffect(() => {
     if (!dialogOpen) return;
@@ -309,10 +337,13 @@ export default function Home() {
       showNotice("单次行程最多支持 14 天");
       return;
     }
+    const currentlyViewedDate = activeDate;
+    const nextActiveDay = nextDays.findIndex((day) => day.iso === currentlyViewedDate);
     setDateRange(dateDraft);
-    setActiveDay((current) => Math.min(current, nextDays.length - 1));
+    setActiveDay(nextActiveDay >= 0 ? nextActiveDay : 0);
+    setRouteInfo({});
     setDateOpen(false);
-    showNotice(`行程日期已更新为 ${formatDateRange(nextDays)}`);
+    showNotice(`行程日期已更新为 ${formatDateRange(nextDays)}；仅保留重叠日期的安排`);
   };
 
   const selectItem = (mapItem: MapItem) => {
@@ -321,6 +352,7 @@ export default function Home() {
   };
 
   const addPlace = (place: SearchPlace) => {
+    if (!activeDate) return;
     const category = categoryForType(place.type);
     const next: PlanItem = {
       id: Date.now(), time: "待安排", title: place.name,
@@ -328,7 +360,7 @@ export default function Home() {
       note: "刚刚加入行程，可以继续设置时间和停留时长。", address: place.address,
       position: { left: "50%", top: "58%" }, lnglat: place.lnglat,
     };
-    setPlans((current) => ({ ...current, [activeDay]: [...(current[activeDay] ?? []), next] }));
+    setPlans((current) => ({ ...current, [activeDate]: [...(current[activeDate] ?? []), next] }));
     setSelectedId(next.id);
     setDialogOpen(false);
     setQuery("");
@@ -356,19 +388,20 @@ export default function Home() {
   };
 
   const optimizeRoute = async () => {
-    if (items.length < 2) return;
+    if (!activeDate || items.length < 2) return;
     setOptimizing(true);
     const optimized = optimizeByDistance([...items]);
-    setPlans((current) => ({ ...current, [activeDay]: optimized }));
+    setPlans((current) => ({ ...current, [activeDate]: optimized }));
     try {
       const result = await mapRef.current?.planRoute(optimized);
-      if (result) setRouteInfo((current) => ({ ...current, [activeDay]: result }));
+      if (result) setRouteInfo((current) => ({ ...current, [activeDate]: result }));
       showNotice("已按距离重排行程，并生成高德驾车路线");
     } catch { showNotice("顺序已优化，路线服务暂时不可用"); }
     setOptimizing(false);
   };
 
   const reorderAt = (targetId: number) => {
+    if (!activeDate) return;
     const sourceId = draggedId.current;
     if (!sourceId || sourceId === targetId) return;
     const next = [...items];
@@ -377,7 +410,7 @@ export default function Home() {
     if (from < 0 || to < 0) return;
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    setPlans((current) => ({ ...current, [activeDay]: next }));
+    setPlans((current) => ({ ...current, [activeDate]: next }));
     draggedId.current = null;
   };
 
@@ -399,10 +432,10 @@ export default function Home() {
   };
 
   const saveEdit = () => {
-    if (!selected) return;
+    if (!selected || !activeDate) return;
     setPlans((current) => ({
       ...current,
-      [activeDay]: current[activeDay].map((item) => item.id === selected.id ? { ...item, ...editDraft, meta: `${categoryStyle[item.category].label} · ${editDraft.duration}` } : item),
+      [activeDate]: (current[activeDate] ?? []).map((item) => item.id === selected.id ? { ...item, ...editDraft, meta: `${categoryStyle[item.category].label} · ${editDraft.duration}` } : item),
     }));
     setEditOpen(false);
     showNotice("安排已保存");
@@ -439,7 +472,7 @@ export default function Home() {
           <div className="date-navigator" onTouchStart={(event) => { daySwipeStart.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={(event) => { const start = daySwipeStart.current; const end = event.changedTouches[0]?.clientX; daySwipeStart.current = null; if (start === null || end === undefined || Math.abs(start - end) < 36) return; moveActiveDay(start > end ? 1 : -1); }}>
             <button className="day-page-button" type="button" aria-label="前一天" disabled={activeDay === 0} onClick={() => moveActiveDay(-1)}><ChevronLeft size={18} /></button>
             <div className="day-tabs" role="tablist" aria-label="选择日期">
-              {visibleDays.map((day, tabIndex) => { const index = dayPage * 3 + tabIndex; return <button type="button" role="tab" aria-selected={activeDay === index} className={activeDay === index ? "day-tab active" : "day-tab"} key={day.iso} onClick={() => selectDay(index)}><span>{day.weekday}</span><strong>{day.shortDate}</strong><small>{plans[index]?.length ?? 0} 个安排</small></button>; })}
+              {visibleDays.map((day, tabIndex) => { const index = dayPage * 3 + tabIndex; return <button type="button" role="tab" aria-selected={activeDay === index} className={activeDay === index ? "day-tab active" : "day-tab"} key={day.iso} onClick={() => selectDay(index)}><span>{day.weekday}</span><strong>{day.shortDate}</strong><small>{plans[day.iso]?.length ?? 0} 个安排</small></button>; })}
             </div>
             <button className="day-page-button" type="button" aria-label="后一天" disabled={activeDay >= days.length - 1} onClick={() => moveActiveDay(1)}><ChevronRight size={18} /></button>
             <span className="day-page-status" aria-live="polite">第 {dayPage * 3 + 1}—{Math.min((dayPage + 1) * 3, days.length)} 天 / 共 {days.length} 天</span>
@@ -496,7 +529,7 @@ export default function Home() {
 
       <Dialog open={commentsOpen} onOpenChange={setCommentsOpen}><DialogContent className="comments-dialog"><DialogHeader><DialogTitle>同行讨论</DialogTitle><DialogDescription>和同行者确认预约、餐厅与路线变化。</DialogDescription></DialogHeader><div className="comment-list">{comments.map((comment, index) => <div className="comment" key={`${comment.author}-${index}`}><span className={`avatar ${comment.color}`}>{comment.author}</span><p><strong>{comment.author}</strong>{comment.text}</p></div>)}</div><div className="comment-compose"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="回复同行者…" /><button type="button" onClick={() => { if (!commentDraft.trim()) return; setComments((current) => [...current, { author: "予", color: "avatar-one", text: commentDraft.trim() }]); setCommentDraft(""); }}>发送</button></div></DialogContent></Dialog>
 
-      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="上海秋日旅行封面" /></div><DialogHeader><DialogTitle>上海 · 秋日周末</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, _day, index) => sum + (plans[index]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[index]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
+      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="上海秋日旅行封面" /></div><DialogHeader><DialogTitle>上海 · 秋日周末</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, day) => sum + (plans[day.iso]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[day.iso]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
 
       {notice && <div className="notice" role="status"><Check size={16} /> {notice}</div>}
     </main>
