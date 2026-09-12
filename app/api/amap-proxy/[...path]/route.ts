@@ -3,27 +3,24 @@ const AMAP_STYLE_HOST = "https://webapi.amap.com";
 
 async function proxy(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const securityCode = process.env.AMAP_SECURITY_CODE;
-  const webServiceKey = process.env.AMAP_WEB_SERVICE_KEY;
 
   const { path } = await context.params;
-  const suffix = path.join("/");
+  // AMap requires the serviceHost URL to end in the literal
+  // `/_AMapService` prefix. Strip that routing prefix before forwarding.
+  const normalizedPath = path[0] === "_AMapService" ? path.slice(1) : path;
+  const suffix = normalizedPath.join("/");
   const isStyleRequest = suffix.startsWith("v4/map/styles");
   const host = isStyleRequest ? AMAP_STYLE_HOST : AMAP_REST_HOST;
   const incoming = new URL(request.url);
   const target = new URL(`${host}/${suffix}`);
   incoming.searchParams.forEach((value, key) => target.searchParams.append(key, value));
 
-  if (isStyleRequest) {
-    if (!securityCode) return Response.json({ error: "AMAP_SECURITY_CODE is not configured" }, { status: 503 });
-    target.searchParams.set("jscode", securityCode);
-  } else {
-    if (!webServiceKey) return Response.json({ error: "AMAP_WEB_SERVICE_KEY is not configured" }, { status: 503 });
-    // Web service requests must be authenticated with a Web服务 Key. Never
-    // trust a browser-supplied key here: it would both expose the key and can
-    // accidentally send a JS API Key to the REST endpoint.
-    target.searchParams.set("key", webServiceKey);
-    target.searchParams.delete("jscode");
-  }
+  if (!securityCode) return Response.json({ error: "AMAP_SECURITY_CODE is not configured" }, { status: 503 });
+
+  // Requests made by the JS SDK already contain the Web(JS API) key. The
+  // matching security code must be appended server-side; replacing that key
+  // with a Web Service key breaks map-tile authentication.
+  target.searchParams.set("jscode", securityCode);
 
   const upstream = await fetch(target, {
     method: request.method,

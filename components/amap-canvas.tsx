@@ -110,7 +110,7 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
     };
     if (window.AMap) initialize();
     else {
-      window._AMapSecurityConfig = { serviceHost: `${window.location.origin}/api/amap-proxy` };
+      window._AMapSecurityConfig = { serviceHost: `${window.location.origin}/api/amap-proxy/_AMapService` };
       const existing = document.querySelector<HTMLScriptElement>('script[data-roamnote-amap="true"]');
       const script = existing ?? document.createElement("script");
       if (!existing) {
@@ -155,97 +155,17 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
   }, [items, ready, selectedId]);
 
   useImperativeHandle(ref, () => ({
-    searchPlaces(keyword) {
-      return new Promise((resolve, reject) => {
-        if (!window.AMap || !mapRef.current) return reject(new Error("地图还在加载"));
-        window.AMap.plugin(["AMap.AutoComplete", "AMap.PlaceSearch"], () => {
-          const readLocation = (location: any): [number, number] | null => {
-            if (!location) return null;
-            const lng = Number(location.lng ?? location.getLng?.());
-            const lat = Number(location.lat ?? location.getLat?.());
-            return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
-          };
-          const fromTip = (tip: any): SearchPlace | null => {
-            const lnglat = readLocation(tip.location);
-            if (!lnglat || !tip.name) return null;
-            return {
-              id: String(tip.id ?? `tip-${tip.name}-${lnglat.join("-")}`),
-              name: String(tip.name),
-              address: String(tip.address ?? tip.district ?? "地址待补充"),
-              district: String(tip.district ?? ""),
-              type: String(tip.typecode ?? tip.type ?? "地点"),
-              lnglat,
-            };
-          };
-          const fromPoi = (poi: any): SearchPlace | null => {
-            const lnglat = readLocation(poi.location);
-            if (!lnglat) return null;
-            return {
-              id: String(poi.id ?? `${poi.name}-${lnglat.join("-")}`),
-              name: String(poi.name ?? "未命名地点"),
-              address: Array.isArray(poi.address) ? poi.address.join("") : String(poi.address ?? "地址待补充"),
-              district: String(poi.adname ?? poi.district ?? poi.cityname ?? ""),
-              type: String(poi.type ?? ""),
-              lnglat,
-            };
-          };
-
-          const autocompletePromise = new Promise<SearchPlace[]>((done) => {
-            const autocomplete = new window.AMap.AutoComplete({ city: "全国", citylimit: false });
-            autocomplete.search(keyword, (status: string, result: any) => {
-              if (status !== "complete") return done([]);
-              done((result?.tips ?? []).map(fromTip).filter(Boolean) as SearchPlace[]);
-            });
-          });
-
-          const placeSearchPromise = new Promise<SearchPlace[]>((done) => {
-            const service = new window.AMap.PlaceSearch({ city: "全国", citylimit: false, pageSize: 8, pageIndex: 1, extensions: "base" });
-            service.search(keyword, (status: string, result: any) => {
-              const pois = result?.poiList?.pois ?? [];
-              if (status !== "complete") return done([]);
-              done(pois.map(fromPoi).filter(Boolean) as SearchPlace[]);
-            });
-          });
-
-          Promise.all([autocompletePromise, placeSearchPromise])
-            .then(([tips, pois]) => {
-              const seen = new Set<string>();
-              const merged = [...tips, ...pois].filter((place) => {
-                const signature = `${place.name}-${place.lnglat[0].toFixed(5)}-${place.lnglat[1].toFixed(5)}`;
-                if (seen.has(signature)) return false;
-                seen.add(signature);
-                return true;
-              });
-              resolve(merged.slice(0, 8));
-            })
-            .catch(() => reject(new Error("地点搜索失败")));
-        });
-      });
+    async searchPlaces(keyword) {
+      const response = await fetch(`/api/amap-search?mode=place&q=${encodeURIComponent(keyword)}`);
+      const data = await response.json() as { places?: SearchPlace[]; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "地点搜索失败");
+      return data.places ?? [];
     },
-    resolveAddress(address) {
-      return new Promise((resolve, reject) => {
-        if (!window.AMap || !mapRef.current) return reject(new Error("地图还在加载"));
-        window.AMap.plugin("AMap.Geocoder", () => {
-          const geocoder = new window.AMap.Geocoder({ city: "全国" });
-          geocoder.getLocation(address, (status: string, result: any) => {
-            const geocode = result?.geocodes?.[0];
-            const location = geocode?.location;
-            if (status !== "complete" || !location) return resolve(null);
-            const lng = Number(location.lng ?? location.getLng?.());
-            const lat = Number(location.lat ?? location.getLat?.());
-            if (!Number.isFinite(lng) || !Number.isFinite(lat)) return resolve(null);
-            const formattedAddress = String(geocode.formattedAddress ?? address);
-            resolve({
-              id: `address-${lng}-${lat}-${Date.now()}`,
-              name: String(geocode.level === "省" || geocode.level === "市" ? address : formattedAddress),
-              address: formattedAddress,
-              district: String(geocode.district ?? geocode.city ?? geocode.province ?? ""),
-              type: String(geocode.level ?? "地址"),
-              lnglat: [lng, lat],
-            });
-          });
-        });
-      });
+    async resolveAddress(address) {
+      const response = await fetch(`/api/amap-search?mode=geocode&q=${encodeURIComponent(address)}`);
+      const data = await response.json() as { places?: SearchPlace[]; error?: string };
+      if (!response.ok) throw new Error(data.error ?? "地址解析失败");
+      return data.places?.[0] ?? null;
     },
     planRoute(routeItems) {
       return new Promise((resolve, reject) => {
