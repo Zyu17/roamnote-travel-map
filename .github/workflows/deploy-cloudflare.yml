@@ -1,0 +1,41 @@
+name: Deploy Roamnote to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roamnote-worker-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Worker
+        run: npm run build:worker
+      - name: Publish Worker and update server secrets
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config dist/server/wrangler.json
+          secrets: |
+            AMAP_JS_KEY
+            AMAP_SECURITY_CODE
+            AMAP_WEB_SERVICE_KEY
+        env:
+          AMAP_JS_KEY: ${{ secrets.AMAP_JS_KEY }}
+          AMAP_SECURITY_CODE: ${{ secrets.AMAP_SECURITY_CODE }}
+          AMAP_WEB_SERVICE_KEY: ${{ secrets.AMAP_WEB_SERVICE_KEY }}

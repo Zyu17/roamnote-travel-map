@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "roamnote-travel-map",
+  "compatibility_date": "2026-09-12",
+  "observability": { "enabled": true },
+  "secrets": {
+    "required": ["AMAP_JS_KEY", "AMAP_SECURITY_CODE", "AMAP_WEB_SERVICE_KEY"]
+  }
+}

@@ -1,5 +1,7 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+/* Use explicit package paths so standard Cloudflare Vite builds resolve the
+   same Tailwind layers as the former Sites-oriented build. */
+@import "../node_modules/tailwindcss/index.css";
+@import "../node_modules/tw-animate-css/dist/tw-animate.css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
 :root {
