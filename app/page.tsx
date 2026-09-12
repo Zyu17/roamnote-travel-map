@@ -25,6 +25,13 @@ export type PlanItem = MapItem & {
 };
 type Plans = Record<string, PlanItem[]>;
 type IndexedPlans = Record<number, PlanItem[]>;
+type CommentRecord = { author: string; color: string; text: string };
+type TripSnapshot = {
+  dateRange: { start: string; end: string };
+  plans: Plans;
+  favoriteIds: number[];
+  comments: CommentRecord[];
+};
 
 const DEFAULT_DATE_RANGE = { start: "2025-10-17", end: "2025-10-19" };
 
@@ -127,11 +134,31 @@ const starterPlaces: SearchPlace[] = [
   { id: "fuhehui", name: "福和慧", address: "愚园路1037号", district: "长宁区", type: "餐饮服务", lnglat: [121.4297, 31.2097] },
 ];
 
-const commentsSeed = [
+const commentsSeed: CommentRecord[] = [
   { author: "林", color: "avatar-two", text: "周六下午博物馆预约好了，二维码放群里了。" },
   { author: "予", color: "avatar-one", text: "外滩源保留，日落前到就很舒服。" },
   { author: "周", color: "avatar-three", text: "晚餐我可以负责打电话确认座位。" },
 ];
+
+function isTripId(value: string | null): value is string {
+  return Boolean(value && /^[A-Za-z0-9_-]{12,80}$/.test(value));
+}
+
+function createTripId() {
+  return typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : `trip_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+}
+
+function normalizeCloudSnapshot(value: unknown): TripSnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const snapshot = value as Partial<TripSnapshot>;
+  if (!snapshot.dateRange || !buildDays(snapshot.dateRange.start ?? "", snapshot.dateRange.end ?? "").length) return null;
+  return {
+    dateRange: snapshot.dateRange,
+    plans: normalizeStoredPlans(snapshot.plans, snapshot.dateRange),
+    favoriteIds: Array.isArray(snapshot.favoriteIds) ? snapshot.favoriteIds.filter((id): id is number => typeof id === "number") : [],
+    comments: Array.isArray(snapshot.comments) ? snapshot.comments.filter((comment): comment is CommentRecord => Boolean(comment && typeof comment === "object" && typeof comment.author === "string" && typeof comment.color === "string" && typeof comment.text === "string")) : commentsSeed,
+  };
+}
 
 function categoryForType(type: string): Category {
   if (/餐饮|美食|咖啡/.test(type)) return "food";
@@ -206,6 +233,9 @@ export default function Home() {
   const [commentDraft, setCommentDraft] = useState("");
   const [editDraft, setEditDraft] = useState({ time: "", duration: "", note: "" });
   const [storageReady, setStorageReady] = useState(false);
+  const [tripId, setTripId] = useState<string | null>(null);
+  const [cloudReady, setCloudReady] = useState(false);
+  const [cloudState, setCloudState] = useState<"loading" | "synced" | "offline">("loading");
 
   const stats = useMemo(() => {
     const actual = activeDate ? routeInfo[activeDate] : undefined;
@@ -228,6 +258,11 @@ export default function Home() {
       }
       const saved = window.localStorage.getItem("roamnote-plans-v3") ?? window.localStorage.getItem("roamnote-plans-v2");
       if (saved) setPlans(normalizeStoredPlans(JSON.parse(saved), storedRange));
+      const sharedTripId = new URLSearchParams(window.location.search).get("trip");
+      const localTripId = window.localStorage.getItem("roamnote-trip-id-v1");
+      const nextTripId = isTripId(sharedTripId) ? sharedTripId : isTripId(localTripId) ? localTripId : createTripId();
+      window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
+      setTripId(nextTripId);
     } catch { /* Device storage is optional. */ }
     setStorageReady(true);
   }, []);
@@ -241,6 +276,54 @@ export default function Home() {
     if (!storageReady) return;
     try { window.localStorage.setItem("roamnote-dates-v1", JSON.stringify(dateRange)); } catch { /* Device storage is optional. */ }
   }, [dateRange, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady || !tripId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/trip?id=${encodeURIComponent(tripId)}`);
+        if (response.ok) {
+          const payload = await response.json() as { snapshot?: unknown };
+          const snapshot = normalizeCloudSnapshot(payload.snapshot);
+          if (snapshot && !cancelled) {
+            setDateRange(snapshot.dateRange);
+            setDateDraft(snapshot.dateRange);
+            setPlans(snapshot.plans);
+            setFavoriteIds(snapshot.favoriteIds);
+            setComments(snapshot.comments);
+            setCloudState("synced");
+          }
+        } else if (response.status !== 404) {
+          throw new Error("cloud read failed");
+        }
+      } catch {
+        if (!cancelled) setCloudState("offline");
+      } finally {
+        if (!cancelled) setCloudReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [storageReady, tripId]);
+
+  useEffect(() => {
+    if (!cloudReady || !tripId) return;
+    const snapshot: TripSnapshot = { dateRange, plans, favoriteIds, comments };
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/trip", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: tripId, snapshot }),
+        });
+        if (!response.ok) throw new Error("cloud write failed");
+        setCloudState("synced");
+      } catch {
+        setCloudState("offline");
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [cloudReady, tripId, dateRange, plans, favoriteIds, comments]);
 
   useEffect(() => {
     if (days.length) setActiveDay((current) => Math.min(current, days.length - 1));
@@ -415,7 +498,10 @@ export default function Home() {
   };
 
   const share = async () => {
-    try { await navigator.clipboard.writeText(window.location.href); showNotice("分享链接已复制"); }
+    if (!tripId) { showNotice("行程还在初始化，请稍后再试"); return; }
+    const shareUrl = new URL(window.location.href);
+    shareUrl.searchParams.set("trip", tripId);
+    try { await navigator.clipboard.writeText(shareUrl.toString()); showNotice("云端行程分享链接已复制"); }
     catch { showNotice("当前浏览器无法复制，请从地址栏复制链接"); }
   };
 
@@ -504,7 +590,10 @@ export default function Home() {
         <section className={`map-panel ${mobilePanel === "map" ? "mobile-visible" : ""}`} aria-label="行程地图">
           <AMapCanvas ref={mapRef} items={items} selectedId={selected?.id ?? null} onSelect={selectItem} onConnectionChange={setMapConnected} />
           <div className="map-search-wrap"><button className="map-search" type="button" onClick={() => setDialogOpen(true)}><Search size={18} /><span>搜索地点或地址，直接加入行程</span><kbd>⌘ K</kbd></button></div>
-          <div className="map-provider-pill"><span className="live-dot" />{mapConnected ? "高德地图已连接" : "正在连接高德地图"}</div>
+          <div className="map-provider-status">
+            <div className="map-provider-pill"><span className="live-dot" />{mapConnected ? "高德地图已连接" : "正在连接高德地图"}</div>
+            <div className={`cloud-sync-pill ${cloudState}`}><span className="live-dot" />{cloudState === "synced" ? "行程已同步云端" : cloudState === "offline" ? "暂存本机，等待云端" : "正在同步行程"}</div>
+          </div>
           <div className="map-controls" aria-label="地图控制">
             <button type="button" aria-label="放大" onClick={() => mapRef.current?.zoomIn()}><ZoomIn size={19} /></button><button type="button" aria-label="缩小" onClick={() => mapRef.current?.zoomOut()}><ZoomOut size={19} /></button><span />
             <button type="button" aria-label="定位" onClick={async () => { try { await mapRef.current?.locate(); showNotice("已定位到当前位置"); } catch (error) { showNotice(error instanceof Error ? error.message : "定位失败"); } }}><LocateFixed size={19} /></button>
