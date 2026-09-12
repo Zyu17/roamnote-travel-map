@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BedDouble, CalendarDays, Check, ChevronDown, Clock3, Compass, Ellipsis,
+  Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Compass, Ellipsis,
   Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin,
   MessageCircle, Navigation, Plus, Search, Share2, Sparkles, Star,
   TrainFront, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
@@ -27,11 +27,13 @@ type Plans = Record<string, PlanItem[]>;
 type IndexedPlans = Record<number, PlanItem[]>;
 type CommentRecord = { author: string; color: string; text: string };
 type TripSnapshot = {
+  title: string;
   dateRange: { start: string; end: string };
   plans: Plans;
   favoriteIds: number[];
   comments: CommentRecord[];
 };
+type TripLibraryItem = { id: string; title: string; startDate: string | null; endDate: string | null; planCount: number; updatedAt: string };
 
 const DEFAULT_DATE_RANGE = { start: "2025-10-17", end: "2025-10-19" };
 
@@ -45,6 +47,27 @@ function toIsoDate(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function addIsoDays(value: string, amount: number) {
+  const date = parseLocalDate(value);
+  date.setDate(date.getDate() + amount);
+  return toIsoDate(date);
+}
+
+function buildBrowsingDays(startValue: string, endValue: string) {
+  const start = parseLocalDate(startValue);
+  const end = parseLocalDate(endValue);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) return [];
+  const result: ReturnType<typeof buildDays> = [];
+  const cursor = new Date(start);
+  while (cursor <= end && result.length < 180) {
+    const month = cursor.getMonth() + 1;
+    const day = cursor.getDate();
+    result.push({ iso: toIsoDate(cursor), weekday: `周${["日", "一", "二", "三", "四", "五", "六"][cursor.getDay()]}`, date: `${month}月${day}日`, shortDate: `${month}/${day}` });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return result;
 }
 
 function buildDays(startValue: string, endValue: string) {
@@ -118,7 +141,7 @@ function normalizeStoredPlans(value: unknown, storedRange: { start: string; end:
       if (legacyDate) mapped[legacyDate] = items as PlanItem[];
     }
   }
-  return Object.keys(mapped).length ? mapped : createInitialPlans();
+  return mapped;
 }
 
 const categoryStyle: Record<Category, { icon: typeof MapPin; label: string; className: string }> = {
@@ -153,6 +176,7 @@ function normalizeCloudSnapshot(value: unknown): TripSnapshot | null {
   const snapshot = value as Partial<TripSnapshot>;
   if (!snapshot.dateRange || !buildDays(snapshot.dateRange.start ?? "", snapshot.dateRange.end ?? "").length) return null;
   return {
+    title: typeof snapshot.title === "string" && snapshot.title.trim() ? snapshot.title.trim() : "上海 · 秋日周末",
     dateRange: snapshot.dateRange,
     plans: normalizeStoredPlans(snapshot.plans, snapshot.dateRange),
     favoriteIds: Array.isArray(snapshot.favoriteIds) ? snapshot.favoriteIds.filter((id): id is number => typeof id === "number") : [],
@@ -206,13 +230,16 @@ export default function Home() {
   const [dateOpen, setDateOpen] = useState(false);
   const [dateSelectionStep, setDateSelectionStep] = useState<"start" | "end">("start");
   const [dayPage, setDayPage] = useState(0);
+  const [browseEnd, setBrowseEnd] = useState(DEFAULT_DATE_RANGE.end);
   const days = useMemo(() => buildDays(dateRange.start, dateRange.end), [dateRange]);
+  const navigationDays = useMemo(() => buildBrowsingDays(dateRange.start, browseEnd), [dateRange.start, browseEnd]);
   const tripDateLabel = useMemo(() => formatDateRange(days), [days]);
   const datePickerRange = useMemo<DateRange>(() => ({ from: parseLocalDate(dateDraft.start), to: parseLocalDate(dateDraft.end) }), [dateDraft]);
-  const pageCount = Math.max(1, Math.ceil(days.length / 3));
-  const visibleDays = days.slice(dayPage * 3, dayPage * 3 + 3);
-  const activeDate = days[activeDay]?.iso;
-  const items = activeDate ? plans[activeDate] ?? [] : [];
+  const pageCount = Math.max(1, Math.ceil(navigationDays.length / 3));
+  const visibleDays = navigationDays.slice(dayPage * 3, dayPage * 3 + 3);
+  const activeDate = navigationDays[activeDay]?.iso;
+  const outsideTripRange = Boolean(activeDate && (activeDate < dateRange.start || activeDate > dateRange.end));
+  const items = useMemo(() => activeDate ? plans[activeDate] ?? [] : [], [activeDate, plans]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const [query, setQuery] = useState("");
@@ -222,6 +249,7 @@ export default function Home() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [tripOpen, setTripOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"map" | "plan">("map");
   const [mapConnected, setMapConnected] = useState(false);
@@ -234,6 +262,10 @@ export default function Home() {
   const [editDraft, setEditDraft] = useState({ time: "", duration: "", note: "" });
   const [storageReady, setStorageReady] = useState(false);
   const [tripId, setTripId] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [tripTitle, setTripTitle] = useState("上海 · 秋日周末");
+  const [libraryTrips, setLibraryTrips] = useState<TripLibraryItem[]>([]);
+  const [libraryState, setLibraryState] = useState<"loading" | "ready" | "error">("loading");
   const [cloudReady, setCloudReady] = useState(false);
   const [cloudState, setCloudState] = useState<"loading" | "synced" | "offline">("loading");
 
@@ -261,8 +293,12 @@ export default function Home() {
       const sharedTripId = new URLSearchParams(window.location.search).get("trip");
       const localTripId = window.localStorage.getItem("roamnote-trip-id-v1");
       const nextTripId = isTripId(sharedTripId) ? sharedTripId : isTripId(localTripId) ? localTripId : createTripId();
+      const storedDeviceId = window.localStorage.getItem("roamnote-device-id-v1");
+      const nextDeviceId = isTripId(storedDeviceId) ? storedDeviceId : createTripId();
       window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
+      window.localStorage.setItem("roamnote-device-id-v1", nextDeviceId);
       setTripId(nextTripId);
+      setDeviceId(nextDeviceId);
     } catch { /* Device storage is optional. */ }
     setStorageReady(true);
   }, []);
@@ -284,11 +320,13 @@ export default function Home() {
       try {
         const response = await fetch(`/api/trip?id=${encodeURIComponent(tripId)}`);
         if (response.ok) {
-          const payload = await response.json() as { snapshot?: unknown };
+          const payload = await response.json() as { title?: unknown; snapshot?: unknown };
           const snapshot = normalizeCloudSnapshot(payload.snapshot);
           if (snapshot && !cancelled) {
+            setTripTitle(typeof payload.title === "string" && payload.title.trim() ? payload.title : snapshot.title);
             setDateRange(snapshot.dateRange);
             setDateDraft(snapshot.dateRange);
+            setBrowseEnd(snapshot.dateRange.end);
             setPlans(snapshot.plans);
             setFavoriteIds(snapshot.favoriteIds);
             setComments(snapshot.comments);
@@ -307,14 +345,14 @@ export default function Home() {
   }, [storageReady, tripId]);
 
   useEffect(() => {
-    if (!cloudReady || !tripId) return;
-    const snapshot: TripSnapshot = { dateRange, plans, favoriteIds, comments };
+    if (!cloudReady || !tripId || !deviceId) return;
+    const snapshot: TripSnapshot = { title: tripTitle, dateRange, plans, favoriteIds, comments };
     const timer = window.setTimeout(async () => {
       try {
         const response = await fetch("/api/trip", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: tripId, snapshot }),
+          body: JSON.stringify({ id: tripId, ownerId: deviceId, title: tripTitle, snapshot }),
         });
         if (!response.ok) throw new Error("cloud write failed");
         setCloudState("synced");
@@ -323,11 +361,24 @@ export default function Home() {
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [cloudReady, tripId, dateRange, plans, favoriteIds, comments]);
+  }, [cloudReady, tripId, deviceId, tripTitle, dateRange, plans, favoriteIds, comments]);
 
   useEffect(() => {
-    if (days.length) setActiveDay((current) => Math.min(current, days.length - 1));
-  }, [days.length]);
+    if (!libraryOpen || !deviceId) return;
+    let cancelled = false;
+    void fetch(`/api/trips?owner=${encodeURIComponent(deviceId)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("library read failed");
+        const payload = await response.json() as { trips?: TripLibraryItem[] };
+        if (!cancelled) { setLibraryTrips(Array.isArray(payload.trips) ? payload.trips : []); setLibraryState("ready"); }
+      })
+      .catch(() => { if (!cancelled) setLibraryState("error"); });
+    return () => { cancelled = true; };
+  }, [libraryOpen, deviceId, cloudState]);
+
+  useEffect(() => {
+    if (navigationDays.length) setActiveDay((current) => Math.min(current, navigationDays.length - 1));
+  }, [navigationDays.length]);
 
   useEffect(() => {
     setDayPage((current) => Math.min(current, pageCount - 1));
@@ -342,6 +393,16 @@ export default function Home() {
     setSelectedId(first?.id ?? null);
     window.setTimeout(() => mapRef.current?.fitToItems(), 80);
   }, [activeDate, storageReady]);
+
+  useEffect(() => {
+    if (!mapConnected || !activeDate || items.length < 2) return;
+    const timer = window.setTimeout(() => {
+      void mapRef.current?.planRoute(items).then((result) => {
+        if (result) setRouteInfo((current) => ({ ...current, [activeDate]: result }));
+      }).catch(() => undefined);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [activeDate, items, mapConnected]);
 
   useEffect(() => {
     if (!dialogOpen) return;
@@ -381,13 +442,28 @@ export default function Home() {
     setDateOpen(true);
   };
 
+  const openLibrary = () => {
+    setLibraryState("loading");
+    setLibraryOpen(true);
+  };
+
   const selectDay = (index: number) => {
     setActiveDay(index);
     setDayPage(Math.floor(index / 3));
   };
 
   const moveActiveDay = (direction: -1 | 1) => {
-    setActiveDay((current) => Math.max(0, Math.min(days.length - 1, current + direction)));
+    setActiveDay((current) => {
+      if (direction === 1 && current >= navigationDays.length - 1) {
+        setBrowseEnd((value) => addIsoDays(value, 3));
+        showNotice("已继续显示行程结束后的日期；这些日期尚未纳入本次行程");
+        return current + 1;
+      }
+      const next = Math.max(0, current + direction);
+      const nextDate = navigationDays[next]?.iso;
+      if (nextDate && nextDate > dateRange.end) showNotice("正在查看行程范围外的日期，安排仍会单独保存");
+      return next;
+    });
   };
 
   const chooseCalendarDate = (date: Date) => {
@@ -423,10 +499,56 @@ export default function Home() {
     const currentlyViewedDate = activeDate;
     const nextActiveDay = nextDays.findIndex((day) => day.iso === currentlyViewedDate);
     setDateRange(dateDraft);
+    setBrowseEnd(dateDraft.end);
     setActiveDay(nextActiveDay >= 0 ? nextActiveDay : 0);
     setRouteInfo({});
     setDateOpen(false);
     showNotice(`行程日期已更新为 ${formatDateRange(nextDays)}；仅保留重叠日期的安排`);
+  };
+
+  const switchTrip = (nextTripId: string) => {
+    if (!isTripId(nextTripId) || nextTripId === tripId) { setLibraryOpen(false); return; }
+    setCloudReady(false);
+    setCloudState("loading");
+    setActiveDay(0);
+    setDayPage(0);
+    setTripId(nextTripId);
+    try {
+      window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
+      const url = new URL(window.location.href);
+      url.searchParams.set("trip", nextTripId);
+      window.history.replaceState({}, "", url);
+    } catch { /* URL and device storage are optional. */ }
+    setLibraryOpen(false);
+    showNotice("正在打开已保存的行程");
+  };
+
+  const createNewTrip = () => {
+    const nextTripId = createTripId();
+    const start = toIsoDate(new Date());
+    const end = addIsoDays(start, 2);
+    setTripTitle("我的新行程");
+    setDateRange({ start, end });
+    setDateDraft({ start, end });
+    setBrowseEnd(end);
+    setPlans({});
+    setFavoriteIds([]);
+    setComments([]);
+    setRouteInfo({});
+    setSelectedId(null);
+    setCloudReady(false);
+    setCloudState("loading");
+    setActiveDay(0);
+    setDayPage(0);
+    setTripId(nextTripId);
+    try {
+      window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
+      const url = new URL(window.location.href);
+      url.searchParams.set("trip", nextTripId);
+      window.history.replaceState({}, "", url);
+    } catch { /* URL and device storage are optional. */ }
+    setLibraryOpen(false);
+    showNotice("新行程已创建，可以开始添加地点");
   };
 
   const selectItem = (mapItem: MapItem) => {
@@ -447,7 +569,7 @@ export default function Home() {
     setSelectedId(next.id);
     setDialogOpen(false);
     setQuery("");
-    showNotice(`${place.name} 已加入 ${days[activeDay].date}`);
+    showNotice(`${place.name} 已加入 ${navigationDays[activeDay].date}${outsideTripRange ? "（行程范围外）" : ""}`);
   };
 
   const addDirectAddress = async () => {
@@ -535,16 +657,16 @@ export default function Home() {
     void Promise.resolve(context.registerTool({
       name: "read_itinerary", title: "查看当前行程", description: "读取当前日期的行程地点、时间和地址。",
       inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute: () => ({ day: days[activeDay].date, items: items.map(({ title, time, address }) => ({ title, time, address })) }),
+      execute: () => ({ day: navigationDays[activeDay]?.date, items: items.map(({ title, time, address }) => ({ title, time, address })) }),
     }, { signal: lifecycle.signal })).catch(() => undefined);
     return () => lifecycle.abort();
-  }, [activeDay, items]);
+  }, [activeDay, items, navigationDays]);
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="brand" aria-label="漫游记"><span className="brand-mark"><Navigation size={18} strokeWidth={2.4} /></span><span className="brand-name">漫游记</span></div>
-        <button className="trip-switcher" type="button" onClick={() => setTripOpen(true)}><span className="trip-cover" /><span className="trip-copy"><strong>上海 · 秋日周末</strong><small>{tripDateLabel} · 4人同行</small></span><ChevronDown size={16} /></button>
+        <button className="trip-switcher" type="button" onClick={openLibrary}><span className="trip-cover" /><span className="trip-copy"><strong>{tripTitle}</strong><small>{tripDateLabel} · 4人同行</small></span><ChevronDown size={16} /></button>
         <div className="top-actions">
           <div className="avatar-stack" aria-label="4 位同行者"><span className="avatar avatar-one">予</span><span className="avatar avatar-two">林</span><span className="avatar avatar-three">+2</span></div>
           <button className="icon-button comments-button" aria-label="讨论" type="button" onClick={() => setCommentsOpen(true)}><MessageCircle size={18} /><span>{comments.length}</span></button>
@@ -560,11 +682,12 @@ export default function Home() {
             <div className="day-tabs" role="tablist" aria-label="选择日期">
               {visibleDays.map((day, tabIndex) => { const index = dayPage * 3 + tabIndex; return <button type="button" role="tab" aria-selected={activeDay === index} className={activeDay === index ? "day-tab active" : "day-tab"} key={day.iso} onClick={() => selectDay(index)}><span>{day.weekday}</span><strong>{day.shortDate}</strong><small>{plans[day.iso]?.length ?? 0} 个安排</small></button>; })}
             </div>
-            <button className="day-page-button" type="button" aria-label="后一天" disabled={activeDay >= days.length - 1} onClick={() => moveActiveDay(1)}><ChevronRight size={18} /></button>
-            <span className="day-page-status" aria-live="polite">第 {dayPage * 3 + 1}—{Math.min((dayPage + 1) * 3, days.length)} 天 / 共 {days.length} 天</span>
+            <button className="day-page-button" type="button" aria-label="后一天" onClick={() => moveActiveDay(1)}><ChevronRight size={18} /></button>
+            <span className={`day-page-status ${outsideTripRange ? "outside" : ""}`} aria-live="polite">{outsideTripRange ? `${navigationDays[activeDay]?.date} · 行程范围外` : `第 ${activeDay + 1} 天 / 共 ${days.length} 天`}</span>
           </div>
+          {outsideTripRange && <div className="outside-range-note"><CalendarDays size={15} /><span>这一天尚未纳入当前行程；你仍可查看或添加安排，修改日期后可正式纳入。</span><button type="button" onClick={openDateEditor}>调整日期</button></div>}
           <div className="day-summary"><span><Footprints size={15} /> {stats.distance}</span><span><Clock3 size={15} /> {stats.duration}</span><button type="button" disabled={optimizing} onClick={optimizeRoute}><Sparkles size={15} /> {optimizing ? "计算中" : "优化路线"}</button></div>
-          <div className="timeline" aria-label={`${days[activeDay].date}行程`}>
+          <div className="timeline" aria-label={`${navigationDays[activeDay]?.date ?? "当前日期"}行程`}>
             {items.map((item, index) => {
               const config = categoryStyle[item.category]; const Icon = config.icon;
               return <button type="button" draggable key={item.id} className={selected?.id === item.id ? "timeline-item selected" : "timeline-item"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)}>
@@ -575,7 +698,7 @@ export default function Home() {
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild><button className="add-plan-button" type="button"><Plus size={18} /> 添加地点或安排</button></DialogTrigger>
             <DialogContent className="add-dialog">
-              <DialogHeader><DialogTitle>搜索地点或地址</DialogTitle><DialogDescription>全国搜索；选择结果或按回车，即可直接加入 {days[activeDay].date}。</DialogDescription></DialogHeader>
+              <DialogHeader><DialogTitle>搜索地点或地址</DialogTitle><DialogDescription>全国搜索；选择结果或按回车，即可直接加入 {navigationDays[activeDay]?.date}。</DialogDescription></DialogHeader>
               <label className="dialog-search"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addDirectAddress(); } }} placeholder="例如：连云港、武康路 115 号" /></label>
               <div className="search-status">{directAdding ? "正在解析地址…" : searchState === "loading" ? "正在搜索高德地点…" : query.length < 2 ? "推荐地点" : searchResults.length ? `找到 ${searchResults.length} 个可添加地点` : searchState === "error" ? "高德搜索暂时未返回结果，可尝试直接解析地址" : "没有匹配的地点，可直接解析这个地址"}</div>
               <div className="suggestion-list">
@@ -603,7 +726,7 @@ export default function Home() {
           <aside className="place-card" aria-live="polite">
             {selected ? <><div className="place-photo"><img src="/shanghai-cover.png" alt="雨后晨光中的上海梧桐街道" /><button type="button" aria-label="关闭地点详情" onClick={() => setSelectedId(null)}><X size={17} /></button><span>{categoryStyle[selected.category].label}</span></div><div className="place-body">
               <div className="place-title-row"><div><h2>{selected.title}</h2><p><MapPin size={14} /> {selected.address}</p></div><button type="button" className={favoriteIds.includes(selected.id) ? "favorite-active" : ""} aria-label="收藏" onClick={() => setFavoriteIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])}><Star size={19} fill={favoriteIds.includes(selected.id) ? "currentColor" : "none"} /></button></div>
-              <div className="reservation-chip"><Check size={14} /> {selected.meta.includes("已预约") ? "已预约 · 凭证已保存" : `已加入 ${days[activeDay].date}`}</div><p className="place-note">{selected.note}</p>
+              <div className="reservation-chip"><Check size={14} /> {selected.meta.includes("已预约") ? "已预约 · 凭证已保存" : `已加入 ${navigationDays[activeDay]?.date}`}</div><p className="place-note">{selected.note}</p>
               <div className="place-actions"><button type="button" onClick={openNavigation}><Navigation size={16} /> 开始导航</button><button type="button" onClick={openEdit}><CalendarDays size={16} /> 编辑安排</button></div>
             </div></> : <div className="empty-place"><Compass size={26} /><strong>选择地图上的地点</strong><span>查看详情、备注和导航入口</span></div>}
           </aside>
@@ -618,7 +741,9 @@ export default function Home() {
 
       <Dialog open={commentsOpen} onOpenChange={setCommentsOpen}><DialogContent className="comments-dialog"><DialogHeader><DialogTitle>同行讨论</DialogTitle><DialogDescription>和同行者确认预约、餐厅与路线变化。</DialogDescription></DialogHeader><div className="comment-list">{comments.map((comment, index) => <div className="comment" key={`${comment.author}-${index}`}><span className={`avatar ${comment.color}`}>{comment.author}</span><p><strong>{comment.author}</strong>{comment.text}</p></div>)}</div><div className="comment-compose"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="回复同行者…" /><button type="button" onClick={() => { if (!commentDraft.trim()) return; setComments((current) => [...current, { author: "予", color: "avatar-one", text: commentDraft.trim() }]); setCommentDraft(""); }}>发送</button></div></DialogContent></Dialog>
 
-      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="上海秋日旅行封面" /></div><DialogHeader><DialogTitle>上海 · 秋日周末</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, day) => sum + (plans[day.iso]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[day.iso]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
+      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="旅行封面" /></div><DialogHeader><DialogTitle>{tripTitle}</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, day) => sum + (plans[day.iso]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><label className="trip-title-editor"><span>行程名称</span><input value={tripTitle} maxLength={60} onChange={(event) => setTripTitle(event.target.value)} placeholder="给这次旅行起个名字" /></label><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[day.iso]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
+
+      <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}><DialogContent className="library-dialog"><DialogHeader><DialogTitle>我的行程库</DialogTitle><DialogDescription>保存在云端的旅行都在这里，选择一项即可查看完整日期与地图路线。</DialogDescription></DialogHeader><button className="new-trip-button" type="button" onClick={createNewTrip}><Plus size={17} />新建行程</button><div className="trip-library-list">{libraryState === "loading" && <div className="library-empty">正在读取云端行程…</div>}{libraryState === "error" && <div className="library-empty">行程库暂时无法连接，请稍后重试。</div>}{libraryState === "ready" && !libraryTrips.length && <div className="library-empty"><Archive size={24} /><strong>还没有保存的行程</strong><span>当前行程完成首次云端同步后会出现在这里。</span></div>}{libraryTrips.map((trip) => <button type="button" key={trip.id} className={trip.id === tripId ? "library-trip active" : "library-trip"} onClick={() => switchTrip(trip.id)}><span className="library-trip-cover" /><span className="library-trip-copy"><strong>{trip.title}</strong><small>{trip.startDate && trip.endDate ? `${trip.startDate.replaceAll("-", ".")} — ${trip.endDate.replaceAll("-", ".")}` : "日期待设置"}</small><em>{trip.planCount} 个安排 · 云端已保存</em></span>{trip.id === tripId ? <span className="current-trip-chip">当前</span> : <ChevronRight size={18} />}</button>)}</div></DialogContent></Dialog>
 
       {notice && <div className="notice" role="status"><Check size={16} /> {notice}</div>}
     </main>
