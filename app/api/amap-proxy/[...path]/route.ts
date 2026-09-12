@@ -3,15 +3,27 @@ const AMAP_STYLE_HOST = "https://webapi.amap.com";
 
 async function proxy(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const securityCode = process.env.AMAP_SECURITY_CODE;
-  if (!securityCode) return Response.json({ error: "AMAP_SECURITY_CODE is not configured" }, { status: 503 });
+  const webServiceKey = process.env.AMAP_WEB_SERVICE_KEY;
 
   const { path } = await context.params;
   const suffix = path.join("/");
-  const host = suffix.startsWith("v4/map/styles") ? AMAP_STYLE_HOST : AMAP_REST_HOST;
+  const isStyleRequest = suffix.startsWith("v4/map/styles");
+  const host = isStyleRequest ? AMAP_STYLE_HOST : AMAP_REST_HOST;
   const incoming = new URL(request.url);
   const target = new URL(`${host}/${suffix}`);
   incoming.searchParams.forEach((value, key) => target.searchParams.append(key, value));
-  target.searchParams.set("jscode", securityCode);
+
+  if (isStyleRequest) {
+    if (!securityCode) return Response.json({ error: "AMAP_SECURITY_CODE is not configured" }, { status: 503 });
+    target.searchParams.set("jscode", securityCode);
+  } else {
+    if (!webServiceKey) return Response.json({ error: "AMAP_WEB_SERVICE_KEY is not configured" }, { status: 503 });
+    // Web service requests must be authenticated with a Web服务 Key. Never
+    // trust a browser-supplied key here: it would both expose the key and can
+    // accidentally send a JS API Key to the REST endpoint.
+    target.searchParams.set("key", webServiceKey);
+    target.searchParams.delete("jscode");
+  }
 
   const upstream = await fetch(target, {
     method: request.method,
