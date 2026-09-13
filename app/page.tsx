@@ -250,6 +250,7 @@ export default function Home() {
   const items = useMemo(() => activeDate ? plans[activeDate] ?? [] : [], [activeDate, plans]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const [mapPickedPlace, setMapPickedPlace] = useState<SearchPlace | null>(null);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchPlace[]>(starterPlaces);
   const [searchState, setSearchState] = useState<"idle" | "loading" | "error">("idle");
@@ -588,6 +589,7 @@ export default function Home() {
   };
 
   const selectItem = (mapItem: MapItem) => {
+    setMapPickedPlace(null);
     setSelectedId(mapItem.id);
     mapRef.current?.focusItem(mapItem);
   };
@@ -602,6 +604,7 @@ export default function Home() {
       position: { left: "50%", top: "58%" }, lnglat: place.lnglat,
     };
     setPlans((current) => ({ ...current, [activeDate]: [...(current[activeDate] ?? []), next] }));
+    setMapPickedPlace(null);
     setSelectedId(next.id);
     setDialogOpen(false);
     setQuery("");
@@ -667,6 +670,12 @@ export default function Home() {
     if (!selected) return;
     const [lng, lat] = selected.lnglat;
     window.open(`https://uri.amap.com/navigation?to=${lng},${lat},${encodeURIComponent(selected.title)}&mode=walk&policy=1&src=roamnote&coordinate=gaode&callnative=1`, "_blank", "noopener,noreferrer");
+  };
+
+  const openPickedPlaceNavigation = () => {
+    if (!mapPickedPlace) return;
+    const [lng, lat] = mapPickedPlace.lnglat;
+    window.open(`https://uri.amap.com/navigation?to=${lng},${lat},${encodeURIComponent(mapPickedPlace.name)}&mode=walk&policy=1&src=roamnote&coordinate=gaode&callnative=1`, "_blank", "noopener,noreferrer");
   };
 
   const openEdit = () => {
@@ -747,7 +756,7 @@ export default function Home() {
         </aside>
 
         <section className={`map-panel ${mobilePanel === "map" ? "mobile-visible" : ""}`} aria-label="行程地图">
-          <AMapCanvas ref={mapRef} items={items} selectedId={selected?.id ?? null} onSelect={selectItem} onConnectionChange={setMapConnected} />
+          <AMapCanvas ref={mapRef} items={items} selectedId={selected?.id ?? null} onSelect={selectItem} onPlacePick={(place) => { setSelectedId(null); setMapPickedPlace(place); }} onConnectionChange={setMapConnected} />
           <div className="map-search-wrap"><button className="map-search" type="button" onClick={() => setDialogOpen(true)}><Search size={18} /><span>搜索地点或地址，直接加入行程</span><kbd>⌘ K</kbd></button></div>
           <div className="map-provider-status">
             <div className="map-provider-pill"><span className="live-dot" />{mapConnected ? "高德地图已连接" : "正在连接高德地图"}</div>
@@ -764,7 +773,7 @@ export default function Home() {
               <div className="place-title-row"><div><h2>{selected.title}</h2><p><MapPin size={14} /> {selected.address}</p></div><button type="button" className={favoriteIds.includes(selected.id) ? "favorite-active" : ""} aria-label="收藏" onClick={() => setFavoriteIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])}><Star size={19} fill={favoriteIds.includes(selected.id) ? "currentColor" : "none"} /></button></div>
               <div className="reservation-chip"><Check size={14} /> {selected.meta.includes("已预约") ? "已预约 · 凭证已保存" : `已加入 ${navigationDays[activeDay]?.date}`}</div><p className="place-note">{selected.note}</p>
               <div className="place-actions"><button type="button" onClick={openNavigation}><Navigation size={16} /> 开始导航</button><button type="button" onClick={openEdit}><CalendarDays size={16} /> 编辑安排</button></div>
-            </div></> : <div className="empty-place"><Compass size={26} /><strong>选择地图上的地点</strong><span>查看详情、备注和导航入口</span></div>}
+            </div></> : mapPickedPlace ? <><div className="place-photo"><img src="/covers/xiamen-coast.jpg" alt="地图地点预览" /><button type="button" aria-label="关闭地点详情" onClick={() => setMapPickedPlace(null)}><X size={17} /></button><span>高德地点</span></div><div className="place-body"><div className="place-title-row"><div><h2>{mapPickedPlace.name}</h2><p><MapPin size={14} /> {mapPickedPlace.address || mapPickedPlace.district || "地图选点"}</p></div></div><div className="reservation-chip"><Check size={14} /> {mapPickedPlace.type || "周边地点"} · 可加入 {navigationDays[activeDay]?.date}</div><p className="place-note">来自高德地图的附近地点信息。加入后可继续修改时间、时长和备注。</p><div className="place-actions"><button type="button" onClick={() => addPlace(mapPickedPlace)}><Plus size={16} /> 加入当天行程</button><button type="button" onClick={openPickedPlaceNavigation}><Navigation size={16} /> 开始导航</button></div></div></> : <div className="empty-place"><Compass size={26} /><strong>点击地图上的地点</strong><span>将读取高德附近地点，查看详情后可加入行程</span></div>}
           </aside>
         </section>
       </section>

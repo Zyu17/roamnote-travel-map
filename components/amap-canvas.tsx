@@ -38,6 +38,7 @@ type Props = {
   items: MapItem[];
   selectedId: number | null;
   onSelect: (item: MapItem) => void;
+  onPlacePick: (place: SearchPlace | null) => void;
   onConnectionChange: (connected: boolean) => void;
 };
 
@@ -64,7 +65,7 @@ function averageCenter(items: MapItem[]): [number, number] {
 }
 
 export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
-  { items, selectedId, onSelect, onConnectionChange },
+  { items, selectedId, onSelect, onPlacePick, onConnectionChange },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -72,6 +73,7 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
   const markersRef = useRef<any[]>([]);
   const routeRef = useRef<any>(null);
   const onSelectRef = useRef(onSelect);
+  const onPlacePickRef = useRef(onPlacePick);
   const itemsRef = useRef(items);
   const styleIndexRef = useRef(0);
   const lastItemsKeyRef = useRef("");
@@ -80,6 +82,7 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
   const [ready, setReady] = useState(false);
 
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { onPlacePickRef.current = onPlacePick; }, [onPlacePick]);
   useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
@@ -105,6 +108,18 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
         animateEnable: true,
       });
       mapRef.current = map;
+      map.on("click", async (event: any) => {
+        if (event?.target && event.target !== map) return;
+        const lng = Number(event?.lnglat?.getLng?.() ?? event?.lnglat?.lng);
+        const lat = Number(event?.lnglat?.getLat?.() ?? event?.lnglat?.lat);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+        onPlacePickRef.current(null);
+        try {
+          const response = await fetch(`/api/amap-search?mode=around&lng=${lng}&lat=${lat}`);
+          const data = await response.json() as { places?: SearchPlace[] };
+          onPlacePickRef.current(response.ok ? data.places?.[0] ?? null : null);
+        } catch { onPlacePickRef.current(null); }
+      });
       setReady(true);
       onConnectionChange(true);
     };

@@ -14,16 +14,26 @@ export async function GET(request: Request) {
 
   const incoming = new URL(request.url);
   const keyword = incoming.searchParams.get("q")?.trim();
-  const mode = incoming.searchParams.get("mode") === "geocode" ? "geocode" : "place";
-  if (!keyword) return Response.json({ error: "Missing search keyword" }, { status: 400 });
+  const requestedMode = incoming.searchParams.get("mode");
+  const mode = requestedMode === "geocode" ? "geocode" : requestedMode === "around" ? "around" : "place";
+  const lng = Number(incoming.searchParams.get("lng"));
+  const lat = Number(incoming.searchParams.get("lat"));
+  if (mode === "around" && (!Number.isFinite(lng) || !Number.isFinite(lat))) return Response.json({ error: "Missing map location" }, { status: 400 });
+  if (mode !== "around" && !keyword) return Response.json({ error: "Missing search keyword" }, { status: 400 });
 
-  const target = new URL(`${AMAP_REST_ENDPOINT}/${mode === "geocode" ? "geocode/geo" : "place/text"}`);
+  const target = new URL(`${AMAP_REST_ENDPOINT}/${mode === "geocode" ? "geocode/geo" : mode === "around" ? "place/around" : "place/text"}`);
   target.searchParams.set("key", webServiceKey);
-  target.searchParams.set(mode === "geocode" ? "address" : "keywords", keyword);
-  target.searchParams.set("city", "全国");
-  if (mode === "place") {
+  if (mode === "geocode") target.searchParams.set("address", keyword!);
+  if (mode === "place") target.searchParams.set("keywords", keyword!);
+  if (mode === "around") {
+    target.searchParams.set("location", `${lng},${lat}`);
+    target.searchParams.set("radius", "500");
+    target.searchParams.set("sortrule", "distance");
+  }
+  if (mode !== "around") target.searchParams.set("city", "全国");
+  if (mode === "place" || mode === "around") {
     target.searchParams.set("citylimit", "false");
-    target.searchParams.set("offset", "8");
+    target.searchParams.set("offset", mode === "around" ? "1" : "8");
     target.searchParams.set("page", "1");
     target.searchParams.set("extensions", "base");
   }
@@ -41,10 +51,10 @@ export async function GET(request: Request) {
   const places = source.flatMap((place: any, index: number) => {
     const lnglat = normalizeLocation(place.location);
     if (!lnglat) return [];
-    const formattedAddress = String(place.formatted_address ?? place.address ?? keyword);
+    const formattedAddress = String(place.formatted_address ?? place.address ?? place.pname ?? keyword ?? "地图选点");
     return [{
       id: String(place.id ?? `${mode}-${index}-${lnglat.join("-")}`),
-      name: String(place.name ?? (mode === "geocode" ? formattedAddress : keyword)),
+      name: String(place.name ?? (mode === "geocode" ? formattedAddress : keyword ?? "地图选点")),
       address: formattedAddress,
       district: String(place.district ?? place.adname ?? place.city ?? place.province ?? ""),
       type: String(place.type ?? place.level ?? "地点"),
