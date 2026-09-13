@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
-  Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Compass, Ellipsis,
+  Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Compass, Ellipsis, ImageUp,
   Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin,
-  MessageCircle, Navigation, Plus, Search, Share2, Sparkles, Star,
-  TrainFront, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
+  MessageCircle, Navigation, Pencil, Plus, Search, Share2, Sparkles, Star,
+  TrainFront, Trash2, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
@@ -28,14 +28,16 @@ type IndexedPlans = Record<number, PlanItem[]>;
 type CommentRecord = { author: string; color: string; text: string };
 type TripSnapshot = {
   title: string;
+  coverUrl: string;
   dateRange: { start: string; end: string };
   plans: Plans;
   favoriteIds: number[];
   comments: CommentRecord[];
 };
-type TripLibraryItem = { id: string; title: string; startDate: string | null; endDate: string | null; planCount: number; updatedAt: string };
+type TripLibraryItem = { id: string; title: string; coverUrl: string | null; startDate: string | null; endDate: string | null; planCount: number; updatedAt: string };
 
 const DEFAULT_DATE_RANGE = { start: "2025-10-17", end: "2025-10-19" };
+const DEFAULT_COVER_URL = "/shanghai-cover.png";
 
 function parseLocalDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -177,6 +179,7 @@ function normalizeCloudSnapshot(value: unknown): TripSnapshot | null {
   if (!snapshot.dateRange || !buildDays(snapshot.dateRange.start ?? "", snapshot.dateRange.end ?? "").length) return null;
   return {
     title: typeof snapshot.title === "string" && snapshot.title.trim() ? snapshot.title.trim() : "上海 · 秋日周末",
+    coverUrl: typeof snapshot.coverUrl === "string" && snapshot.coverUrl.trim() ? snapshot.coverUrl : DEFAULT_COVER_URL,
     dateRange: snapshot.dateRange,
     plans: normalizeStoredPlans(snapshot.plans, snapshot.dateRange),
     favoriteIds: Array.isArray(snapshot.favoriteIds) ? snapshot.favoriteIds.filter((id): id is number => typeof id === "number") : [],
@@ -264,6 +267,7 @@ export default function Home() {
   const [tripId, setTripId] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [tripTitle, setTripTitle] = useState("上海 · 秋日周末");
+  const [coverUrl, setCoverUrl] = useState(DEFAULT_COVER_URL);
   const [libraryTrips, setLibraryTrips] = useState<TripLibraryItem[]>([]);
   const [libraryState, setLibraryState] = useState<"loading" | "ready" | "error">("loading");
   const [cloudReady, setCloudReady] = useState(false);
@@ -324,6 +328,7 @@ export default function Home() {
           const snapshot = normalizeCloudSnapshot(payload.snapshot);
           if (snapshot && !cancelled) {
             setTripTitle(typeof payload.title === "string" && payload.title.trim() ? payload.title : snapshot.title);
+            setCoverUrl(snapshot.coverUrl);
             setDateRange(snapshot.dateRange);
             setDateDraft(snapshot.dateRange);
             setBrowseEnd(snapshot.dateRange.end);
@@ -346,7 +351,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!cloudReady || !tripId || !deviceId) return;
-    const snapshot: TripSnapshot = { title: tripTitle, dateRange, plans, favoriteIds, comments };
+    const snapshot: TripSnapshot = { title: tripTitle, coverUrl, dateRange, plans, favoriteIds, comments };
     const timer = window.setTimeout(async () => {
       try {
         const response = await fetch("/api/trip", {
@@ -361,7 +366,7 @@ export default function Home() {
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [cloudReady, tripId, deviceId, tripTitle, dateRange, plans, favoriteIds, comments]);
+  }, [cloudReady, tripId, deviceId, tripTitle, coverUrl, dateRange, plans, favoriteIds, comments]);
 
   useEffect(() => {
     if (!libraryOpen || !deviceId) return;
@@ -528,6 +533,7 @@ export default function Home() {
     const start = toIsoDate(new Date());
     const end = addIsoDays(start, 2);
     setTripTitle("我的新行程");
+    setCoverUrl(DEFAULT_COVER_URL);
     setDateRange({ start, end });
     setDateDraft({ start, end });
     setBrowseEnd(end);
@@ -549,6 +555,31 @@ export default function Home() {
     } catch { /* URL and device storage are optional. */ }
     setLibraryOpen(false);
     showNotice("新行程已创建，可以开始添加地点");
+  };
+
+  const uploadCover = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { showNotice("请选一张图片作为行程封面"); return; }
+    if (file.size > 520_000) { showNotice("封面图片请控制在 500 KB 以内"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") { setCoverUrl(reader.result); showNotice("封面已更新，正在同步云端"); }
+    };
+    reader.onerror = () => showNotice("图片读取失败，请换一张再试");
+    reader.readAsDataURL(file);
+  };
+
+  const deleteTrip = async (id: string) => {
+    if (!deviceId || !window.confirm("删除后将无法恢复这份云端行程，确定删除吗？")) return;
+    try {
+      const response = await fetch(`/api/trip?id=${encodeURIComponent(id)}&owner=${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("delete failed");
+      setLibraryTrips((current) => current.filter((trip) => trip.id !== id));
+      if (id === tripId) { createNewTrip(); return; }
+      showNotice("行程已删除");
+    } catch { showNotice("删除失败，请稍后重试"); }
   };
 
   const selectItem = (mapItem: MapItem) => {
@@ -666,7 +697,7 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand" aria-label="漫游记"><span className="brand-mark"><Navigation size={18} strokeWidth={2.4} /></span><span className="brand-name">漫游记</span></div>
-        <button className="trip-switcher" type="button" onClick={openLibrary}><span className="trip-cover" /><span className="trip-copy"><strong>{tripTitle}</strong><small>{tripDateLabel} · 4人同行</small></span><ChevronDown size={16} /></button>
+        <button className="trip-switcher" type="button" onClick={openLibrary}><span className="trip-cover" style={{ backgroundImage: `url("${coverUrl}")` }} /><span className="trip-copy"><strong>{tripTitle}</strong><small>{tripDateLabel} · 4人同行</small></span><ChevronDown size={16} /></button>
         <div className="top-actions">
           <div className="avatar-stack" aria-label="4 位同行者"><span className="avatar avatar-one">予</span><span className="avatar avatar-two">林</span><span className="avatar avatar-three">+2</span></div>
           <button className="icon-button comments-button" aria-label="讨论" type="button" onClick={() => setCommentsOpen(true)}><MessageCircle size={18} /><span>{comments.length}</span></button>
@@ -741,9 +772,9 @@ export default function Home() {
 
       <Dialog open={commentsOpen} onOpenChange={setCommentsOpen}><DialogContent className="comments-dialog"><DialogHeader><DialogTitle>同行讨论</DialogTitle><DialogDescription>和同行者确认预约、餐厅与路线变化。</DialogDescription></DialogHeader><div className="comment-list">{comments.map((comment, index) => <div className="comment" key={`${comment.author}-${index}`}><span className={`avatar ${comment.color}`}>{comment.author}</span><p><strong>{comment.author}</strong>{comment.text}</p></div>)}</div><div className="comment-compose"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="回复同行者…" /><button type="button" onClick={() => { if (!commentDraft.trim()) return; setComments((current) => [...current, { author: "予", color: "avatar-one", text: commentDraft.trim() }]); setCommentDraft(""); }}>发送</button></div></DialogContent></Dialog>
 
-      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src="/shanghai-cover.png" alt="旅行封面" /></div><DialogHeader><DialogTitle>{tripTitle}</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, day) => sum + (plans[day.iso]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><label className="trip-title-editor"><span>行程名称</span><input value={tripTitle} maxLength={60} onChange={(event) => setTripTitle(event.target.value)} placeholder="给这次旅行起个名字" /></label><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[day.iso]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
+      <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src={coverUrl} alt="旅行封面" /></div><DialogHeader><DialogTitle>{tripTitle}</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, day) => sum + (plans[day.iso]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><label className="trip-title-editor"><span>行程名称</span><input value={tripTitle} maxLength={60} onChange={(event) => setTripTitle(event.target.value)} placeholder="给这次旅行起个名字" /></label><div className="cover-editor"><span>行程封面</span><div><label className="cover-upload-button"><ImageUp size={15} />从本地选择图片<input type="file" accept="image/*" onChange={uploadCover} /></label><button type="button" onClick={() => setCoverUrl(DEFAULT_COVER_URL)}>恢复默认</button></div><input value={coverUrl.startsWith("data:") ? "已使用本地图片" : coverUrl} onChange={(event) => setCoverUrl(event.target.value)} disabled={coverUrl.startsWith("data:")} placeholder="或粘贴图片链接 https://…" /></div><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[day.iso]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
 
-      <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}><DialogContent className="library-dialog"><DialogHeader><DialogTitle>我的行程库</DialogTitle><DialogDescription>保存在云端的旅行都在这里，选择一项即可查看完整日期与地图路线。</DialogDescription></DialogHeader><button className="new-trip-button" type="button" onClick={createNewTrip}><Plus size={17} />新建行程</button><div className="trip-library-list">{libraryState === "loading" && <div className="library-empty">正在读取云端行程…</div>}{libraryState === "error" && <div className="library-empty">行程库暂时无法连接，请稍后重试。</div>}{libraryState === "ready" && !libraryTrips.length && <div className="library-empty"><Archive size={24} /><strong>还没有保存的行程</strong><span>当前行程完成首次云端同步后会出现在这里。</span></div>}{libraryTrips.map((trip) => <button type="button" key={trip.id} className={trip.id === tripId ? "library-trip active" : "library-trip"} onClick={() => switchTrip(trip.id)}><span className="library-trip-cover" /><span className="library-trip-copy"><strong>{trip.title}</strong><small>{trip.startDate && trip.endDate ? `${trip.startDate.replaceAll("-", ".")} — ${trip.endDate.replaceAll("-", ".")}` : "日期待设置"}</small><em>{trip.planCount} 个安排 · 云端已保存</em></span>{trip.id === tripId ? <span className="current-trip-chip">当前</span> : <ChevronRight size={18} />}</button>)}</div></DialogContent></Dialog>
+      <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}><DialogContent className="library-dialog"><DialogHeader><DialogTitle>我的行程库</DialogTitle><DialogDescription>保存在云端的旅行都在这里，选择一项即可查看完整日期与地图路线。</DialogDescription></DialogHeader><button className="new-trip-button" type="button" onClick={createNewTrip}><Plus size={17} />新建行程</button><div className="trip-library-list">{libraryState === "loading" && <div className="library-empty">正在读取云端行程…</div>}{libraryState === "error" && <div className="library-empty">行程库暂时无法连接，请稍后重试。</div>}{libraryState === "ready" && !libraryTrips.length && <div className="library-empty"><Archive size={24} /><strong>还没有保存的行程</strong><span>当前行程完成首次云端同步后会出现在这里。</span></div>}{libraryTrips.map((trip) => <div key={trip.id} className={trip.id === tripId ? "library-trip-wrap active" : "library-trip-wrap"}><button type="button" className="library-trip" onClick={() => switchTrip(trip.id)}><span className="library-trip-cover" style={{ backgroundImage: `url("${trip.coverUrl || DEFAULT_COVER_URL}")` }} /><span className="library-trip-copy"><strong>{trip.title}</strong><small>{trip.startDate && trip.endDate ? `${trip.startDate.replaceAll("-", ".")} — ${trip.endDate.replaceAll("-", ".")}` : "日期待设置"}</small><em>{trip.planCount} 个安排 · 云端已保存</em></span>{trip.id === tripId ? <span className="current-trip-chip">当前</span> : <ChevronRight size={18} />}</button><div className="library-trip-actions">{trip.id === tripId && <button type="button" aria-label={`编辑${trip.title}`} onClick={() => { setLibraryOpen(false); setTripOpen(true); }}><Pencil size={15} />编辑</button>}<button type="button" className="delete-trip-button" aria-label={`删除${trip.title}`} onClick={() => void deleteTrip(trip.id)}><Trash2 size={15} />删除</button></div></div>)}</div></DialogContent></Dialog>
 
       {notice && <div className="notice" role="status"><Check size={16} /> {notice}</div>}
     </main>

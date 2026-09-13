@@ -22,11 +22,13 @@ export async function GET(request: Request) {
 
     const trips = rows.map((row) => {
       let planCount = 0;
+      let coverUrl: string | null = null;
       try {
-        const snapshot = JSON.parse(row.snapshot) as { plans?: Record<string, unknown[]> };
+        const snapshot = JSON.parse(row.snapshot) as { plans?: Record<string, unknown[]>; coverUrl?: unknown };
         planCount = Object.values(snapshot.plans ?? {}).reduce((sum, items) => sum + (Array.isArray(items) ? items.length : 0), 0);
+        coverUrl = typeof snapshot.coverUrl === "string" ? snapshot.coverUrl : null;
       } catch { /* A malformed legacy snapshot should not hide the whole library. */ }
-      return { id: row.id, title: row.title, startDate: row.startDate, endDate: row.endDate, planCount, updatedAt: row.updatedAt };
+      return { id: row.id, title: row.title, startDate: row.startDate, endDate: row.endDate, coverUrl, planCount, updatedAt: row.updatedAt };
     });
     return Response.json({ trips });
   } catch {

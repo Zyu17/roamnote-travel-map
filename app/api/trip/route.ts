@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { travelPlans } from "@/db/schema";
 
@@ -6,6 +6,7 @@ const MAX_SNAPSHOT_BYTES = 900_000;
 
 type TripSnapshotInput = {
   title?: unknown;
+  coverUrl?: unknown;
   dateRange?: { start?: unknown; end?: unknown };
   plans?: unknown;
   favoriteIds?: unknown;
@@ -96,5 +97,20 @@ export async function PUT(request: Request) {
     return Response.json({ ok: true, updatedAt: now.toISOString() });
   } catch {
     return Response.json({ error: "暂时无法保存到云端" }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const url = new URL(request.url);
+  const tripId = url.searchParams.get("id");
+  const ownerId = url.searchParams.get("owner");
+  if (!isTripId(tripId) || !isOwnerId(ownerId)) return Response.json({ error: "无效的行程标识" }, { status: 400 });
+
+  try {
+    const result = await getDb().delete(travelPlans).where(and(eq(travelPlans.id, tripId), eq(travelPlans.ownerId, ownerId))).run();
+    if (!result.meta.changes) return Response.json({ error: "行程不存在或无权删除" }, { status: 404 });
+    return Response.json({ ok: true });
+  } catch {
+    return Response.json({ error: "暂时无法删除云端行程" }, { status: 503 });
   }
 }
