@@ -56,6 +56,10 @@ function toIsoDate(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function isClockTime(value: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
 function addIsoDays(value: string, amount: number) {
   const date = parseLocalDate(value);
   date.setDate(date.getDate() + amount);
@@ -680,15 +684,16 @@ export default function Home() {
 
   const openEdit = () => {
     if (!selected) return;
-    setEditDraft({ time: selected.time, duration: selected.duration, note: selected.note });
+    setEditDraft({ time: isClockTime(selected.time) ? selected.time : "", duration: selected.duration, note: selected.note });
     setEditOpen(true);
   };
 
   const saveEdit = () => {
     if (!selected || !activeDate) return;
+    const time = editDraft.time || "待安排";
     setPlans((current) => ({
       ...current,
-      [activeDate]: (current[activeDate] ?? []).map((item) => item.id === selected.id ? { ...item, ...editDraft, meta: `${categoryStyle[item.category].label} · ${editDraft.duration}` } : item),
+      [activeDate]: (current[activeDate] ?? []).map((item) => item.id === selected.id ? { ...item, ...editDraft, time, meta: `${categoryStyle[item.category].label} · ${editDraft.duration}` } : item),
     }));
     setEditOpen(false);
     showNotice("安排已保存");
@@ -780,7 +785,7 @@ export default function Home() {
 
       <nav className="mobile-nav" aria-label="移动端视图切换"><button type="button" className={mobilePanel === "map" ? "active" : ""} onClick={() => setMobilePanel("map")}><MapIcon size={18} />地图</button><button type="button" className={mobilePanel === "plan" ? "active" : ""} onClick={() => setMobilePanel("plan")}><CalendarDays size={18} />行程</button><button type="button" onClick={() => setCommentsOpen(true)}><Users size={18} />同行</button></nav>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}><DialogContent className="edit-dialog"><DialogHeader><DialogTitle>编辑 {selected?.title}</DialogTitle><DialogDescription>调整当天的到达时间、停留时长和同行备注。</DialogDescription></DialogHeader><div className="edit-grid"><label><span>到达时间</span><input value={editDraft.time} onChange={(event) => setEditDraft((current) => ({ ...current, time: event.target.value }))} /></label><label><span>停留时长</span><input value={editDraft.duration} onChange={(event) => setEditDraft((current) => ({ ...current, duration: event.target.value }))} /></label><label className="edit-note"><span>同行备注</span><textarea rows={4} value={editDraft.note} onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))} /></label></div><button className="dialog-primary" type="button" onClick={saveEdit}>保存安排</button></DialogContent></Dialog>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}><DialogContent className="edit-dialog"><DialogHeader><DialogTitle>编辑 {selected?.title}</DialogTitle><DialogDescription>调整当天的到达时间、停留时长和同行备注。</DialogDescription></DialogHeader><div className="edit-grid"><label><span>到达时间</span><input type="time" value={editDraft.time} onChange={(event) => setEditDraft((current) => ({ ...current, time: event.target.value }))} /><small>点击选择小时和分钟；留空则为待安排</small></label><label><span>停留时长</span><input value={editDraft.duration} onChange={(event) => setEditDraft((current) => ({ ...current, duration: event.target.value }))} /></label><label className="edit-note"><span>同行备注</span><textarea rows={4} value={editDraft.note} onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))} /></label></div><button className="dialog-primary" type="button" onClick={saveEdit}>保存安排</button></DialogContent></Dialog>
 
       <Dialog open={dateOpen} onOpenChange={setDateOpen}><DialogContent className="date-dialog"><DialogHeader><DialogTitle>设置行程日期</DialogTitle><DialogDescription>{dateSelectionStep === "start" ? "请点选新的出发日期" : "出发日已选择，请再点选结束日期"}，单次最多 14 天。</DialogDescription></DialogHeader><div className="date-step-selector"><button type="button" className={dateSelectionStep === "start" ? "active" : ""} onClick={() => setDateSelectionStep("start")}><small>1 · 出发</small><strong>{dateDraft.start.replaceAll("-", ".")}</strong></button><i /><button type="button" className={dateSelectionStep === "end" ? "active" : ""} onClick={() => setDateSelectionStep("end")}><small>2 · 结束</small><strong>{dateDraft.end.replaceAll("-", ".")}</strong></button></div><div className="date-calendar-shell"><Calendar mode="range" locale={zhCN} selected={datePickerRange} onSelect={() => undefined} onDayClick={chooseCalendarDate} numberOfMonths={2} defaultMonth={parseLocalDate(dateDraft.start)} showOutsideDays={false} /></div><div className="date-dialog-preview"><CalendarDays size={17} /><span>{formatDateRange(buildDays(dateDraft.start, dateDraft.end))}</span><small>{buildDays(dateDraft.start, dateDraft.end).length || 0} 天</small></div><button className="dialog-primary" type="button" onClick={saveDateRange}>保存行程日期</button></DialogContent></Dialog>
 
