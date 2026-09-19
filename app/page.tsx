@@ -43,6 +43,10 @@ const SYSTEM_COVERS = [
   { id: "hangzhou", name: "西湖晨光", url: "/covers/hangzhou-west-lake.jpg" },
   { id: "xiamen", name: "海岸慢游", url: "/covers/xiamen-coast.jpg" },
 ];
+const ARRIVAL_HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
+const ARRIVAL_MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"));
+const QUICK_TIMES = ["09:00", "12:00", "14:00", "18:00"];
+const DURATION_PRESETS = ["30分钟", "1小时", "1.5小时", "2小时"];
 
 function parseLocalDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -273,6 +277,8 @@ export default function Home() {
   const [comments, setComments] = useState(commentsSeed);
   const [commentDraft, setCommentDraft] = useState("");
   const [editDraft, setEditDraft] = useState({ time: "", duration: "", note: "" });
+  const editTimeParts = isClockTime(editDraft.time) ? editDraft.time.split(":") : ["", ""];
+  const editDurationMatch = /^(\d+(?:\.\d+)?)\s*(分钟|小时)$/.exec(editDraft.duration);
   const [storageReady, setStorageReady] = useState(false);
   const [tripId, setTripId] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -688,12 +694,27 @@ export default function Home() {
     setEditOpen(true);
   };
 
+  const updateArrivalTime = (part: "hour" | "minute", value: string) => {
+    if (!value && part === "hour") {
+      setEditDraft((current) => ({ ...current, time: "" }));
+      return;
+    }
+    const hour = part === "hour" ? value : editTimeParts[0] || "09";
+    const minute = part === "minute" ? value : editTimeParts[1] || "00";
+    setEditDraft((current) => ({ ...current, time: hour && minute ? `${hour}:${minute}` : "" }));
+  };
+
+  const updateDuration = (value: string, unit: "分钟" | "小时") => {
+    setEditDraft((current) => ({ ...current, duration: value ? `${value}${unit}` : "" }));
+  };
+
   const saveEdit = () => {
     if (!selected || !activeDate) return;
     const time = editDraft.time || "待安排";
+    const duration = editDraft.duration || "待设置";
     setPlans((current) => ({
       ...current,
-      [activeDate]: (current[activeDate] ?? []).map((item) => item.id === selected.id ? { ...item, ...editDraft, time, meta: `${categoryStyle[item.category].label} · ${editDraft.duration}` } : item),
+      [activeDate]: (current[activeDate] ?? []).map((item) => item.id === selected.id ? { ...item, ...editDraft, time, duration, meta: `${categoryStyle[item.category].label} · ${duration}` } : item),
     }));
     setEditOpen(false);
     showNotice("安排已保存");
@@ -785,7 +806,7 @@ export default function Home() {
 
       <nav className="mobile-nav" aria-label="移动端视图切换"><button type="button" className={mobilePanel === "map" ? "active" : ""} onClick={() => setMobilePanel("map")}><MapIcon size={18} />地图</button><button type="button" className={mobilePanel === "plan" ? "active" : ""} onClick={() => setMobilePanel("plan")}><CalendarDays size={18} />行程</button><button type="button" onClick={() => setCommentsOpen(true)}><Users size={18} />同行</button></nav>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}><DialogContent className="edit-dialog"><DialogHeader><DialogTitle>编辑 {selected?.title}</DialogTitle><DialogDescription>调整当天的到达时间、停留时长和同行备注。</DialogDescription></DialogHeader><div className="edit-grid"><label><span>到达时间</span><input type="time" value={editDraft.time} onChange={(event) => setEditDraft((current) => ({ ...current, time: event.target.value }))} /><small>点击选择小时和分钟；留空则为待安排</small></label><label><span>停留时长</span><input value={editDraft.duration} onChange={(event) => setEditDraft((current) => ({ ...current, duration: event.target.value }))} /></label><label className="edit-note"><span>同行备注</span><textarea rows={4} value={editDraft.note} onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))} /></label></div><button className="dialog-primary" type="button" onClick={saveEdit}>保存安排</button></DialogContent></Dialog>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}><DialogContent className="edit-dialog"><DialogHeader><DialogTitle>编辑 {selected?.title}</DialogTitle><DialogDescription>调整当天的到达时间、停留时长和同行备注。</DialogDescription></DialogHeader><div className="edit-grid"><div className="edit-field"><span>到达时间</span><div className="time-selectors"><select aria-label="到达小时" value={editTimeParts[0]} onChange={(event) => updateArrivalTime("hour", event.target.value)}><option value="">小时</option>{ARRIVAL_HOURS.map((hour) => <option key={hour} value={hour}>{hour}</option>)}</select><b>:</b><select aria-label="到达分钟" value={editTimeParts[1]} onChange={(event) => updateArrivalTime("minute", event.target.value)}><option value="">分钟</option>{ARRIVAL_MINUTES.map((minute) => <option key={minute} value={minute}>{minute}</option>)}</select></div><div className="field-presets" aria-label="常用到达时间">{QUICK_TIMES.map((time) => <button type="button" key={time} className={editDraft.time === time ? "active" : ""} onClick={() => setEditDraft((current) => ({ ...current, time }))}>{time}</button>)}<button type="button" onClick={() => setEditDraft((current) => ({ ...current, time: "" }))}>待安排</button></div></div><div className="edit-field"><span>停留时长</span><div className="field-presets duration-presets" aria-label="常用停留时长">{DURATION_PRESETS.map((duration) => <button type="button" key={duration} className={editDraft.duration === duration ? "active" : ""} onClick={() => setEditDraft((current) => ({ ...current, duration }))}>{duration}</button>)}</div><div className="duration-custom"><input type="number" inputMode="decimal" min="0" step="0.5" aria-label="自定义停留时长" placeholder="自定义" value={editDurationMatch?.[1] ?? ""} onChange={(event) => updateDuration(event.target.value, (editDurationMatch?.[2] as "分钟" | "小时") ?? "小时")} /><select aria-label="停留时长单位" value={editDurationMatch?.[2] ?? "小时"} onChange={(event) => updateDuration(editDurationMatch?.[1] ?? "1", event.target.value as "分钟" | "小时")}><option value="分钟">分钟</option><option value="小时">小时</option></select></div></div><label className="edit-note"><span>同行备注</span><textarea rows={4} value={editDraft.note} onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))} /></label></div><button className="dialog-primary" type="button" onClick={saveEdit}>保存安排</button></DialogContent></Dialog>
 
       <Dialog open={dateOpen} onOpenChange={setDateOpen}><DialogContent className="date-dialog"><DialogHeader><DialogTitle>设置行程日期</DialogTitle><DialogDescription>{dateSelectionStep === "start" ? "请点选新的出发日期" : "出发日已选择，请再点选结束日期"}，单次最多 14 天。</DialogDescription></DialogHeader><div className="date-step-selector"><button type="button" className={dateSelectionStep === "start" ? "active" : ""} onClick={() => setDateSelectionStep("start")}><small>1 · 出发</small><strong>{dateDraft.start.replaceAll("-", ".")}</strong></button><i /><button type="button" className={dateSelectionStep === "end" ? "active" : ""} onClick={() => setDateSelectionStep("end")}><small>2 · 结束</small><strong>{dateDraft.end.replaceAll("-", ".")}</strong></button></div><div className="date-calendar-shell"><Calendar mode="range" locale={zhCN} selected={datePickerRange} onSelect={() => undefined} onDayClick={chooseCalendarDate} numberOfMonths={2} defaultMonth={parseLocalDate(dateDraft.start)} showOutsideDays={false} /></div><div className="date-dialog-preview"><CalendarDays size={17} /><span>{formatDateRange(buildDays(dateDraft.start, dateDraft.end))}</span><small>{buildDays(dateDraft.start, dateDraft.end).length || 0} 天</small></div><button className="dialog-primary" type="button" onClick={saveDateRange}>保存行程日期</button></DialogContent></Dialog>
 
