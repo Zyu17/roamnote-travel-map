@@ -93,11 +93,8 @@ button, input { font: inherit; } button { color: inherit; }
 .time-range-hint { min-height: 16px; margin: 0; color: #718780; font-size: 11px; }
 .time-range-hint.error { color: #af544b; }
 .time-range-picker { padding: 13px; display: grid; gap: 10px; border: 1px solid #dce7df; border-radius: 13px; background: #fbfcfa; }
-.time-segment-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-.time-segment-tabs button { min-height: 33px; border: 0; border-radius: 8px; background: #edf3ed; color: #668078; font-size: 12px; font-weight: 750; cursor: pointer; }
-.time-segment-tabs button.selected { background: #173d38; color: white; }
 .time-range-instruction { margin: 0; color: #81918b; font-size: 11px; line-height: 1.4; }
-.time-range-grid { display: grid; gap: 3px; user-select: none; touch-action: none; }
+.time-range-grid { max-height: 238px; padding-right: 4px; display: grid; gap: 3px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b7c9c0 transparent; user-select: none; touch-action: pan-y; }
 .time-range-hour { display: grid; grid-template-columns: 48px repeat(4, 1fr); gap: 4px; align-items: center; }
 .time-range-hour > span { color: #7a8d85; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .time-range-hour button { min-width: 0; min-height: 34px; border: 1px solid #e0e8e1; border-radius: 7px; background: #f2f6f1; color: #577369; font-size: 11px; font-weight: 700; cursor: crosshair; }

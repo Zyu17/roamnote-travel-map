@@ -43,8 +43,6 @@ const SYSTEM_COVERS = [
   { id: "hangzhou", name: "西湖晨光", url: "/covers/hangzhou-west-lake.jpg" },
   { id: "xiamen", name: "海岸慢游", url: "/covers/xiamen-coast.jpg" },
 ];
-const TIME_SEGMENTS = ["凌晨", "上午", "下午", "晚上"];
-
 function minutesToClock(minutes: number) {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
@@ -302,17 +300,25 @@ export default function Home() {
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [rangeTouched, setRangeTouched] = useState(false);
-  const [timeSegment, setTimeSegment] = useState(1);
   const [pendingSlot, setPendingSlot] = useState<number | null>(null);
   const [dragSlot, setDragSlot] = useState<number | null>(null);
   const dragAnchorRef = useRef<number | null>(null);
   const dragCurrentRef = useRef<number | null>(null);
+  const timeGridRef = useRef<HTMLDivElement | null>(null);
+  const initialScrollHourRef = useRef(9);
   const startMinutes = clockToMinutes(rangeStart);
   const endMinutes = clockToMinutes(rangeEnd, true);
   const rangeMinutes = startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes
     ? (endMinutes - startMinutes + 1440) % 1440 || 1440
     : null;
   const invalidRange = Boolean((rangeStart && startMinutes === null) || (rangeEnd && endMinutes === null) || (!rangeStart && rangeEnd) || (startMinutes !== null && endMinutes !== null && startMinutes === endMinutes));
+
+  useEffect(() => {
+    if (!timePickerOpen || !timeGridRef.current) return;
+    const rows = timeGridRef.current.querySelectorAll<HTMLElement>(".time-range-hour");
+    const target = rows[Math.max(0, initialScrollHourRef.current - 2)];
+    if (target && rows[0]) timeGridRef.current.scrollTop = target.offsetTop - rows[0].offsetTop;
+  }, [timePickerOpen]);
   const [storageReady, setStorageReady] = useState(false);
   const [tripId, setTripId] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -731,7 +737,7 @@ export default function Home() {
     setRangeStart(start);
     setRangeEnd(end);
     setRangeTouched(false);
-    setTimeSegment(start ? Math.floor(clockToMinutes(start)! / 360) : 1);
+    initialScrollHourRef.current = start ? Math.floor(clockToMinutes(start)! / 60) : 9;
     setPendingSlot(null);
     setDragSlot(null);
     setTimePickerOpen(false);
@@ -887,14 +893,13 @@ export default function Home() {
                 <label><span>开始</span><input type="text" inputMode="numeric" maxLength={5} placeholder="09:00" aria-label="开始时间" value={rangeStart} onFocus={(event) => event.target.select()} onChange={(event) => { setRangeStart(event.target.value); setRangeTouched(true); setPendingSlot(null); }} /></label>
                 <span className="time-range-dash">—</span>
                 <label><span>结束</span><input type="text" inputMode="numeric" maxLength={5} placeholder="10:00" aria-label="结束时间" value={rangeEnd} onFocus={(event) => event.target.select()} onChange={(event) => { setRangeEnd(event.target.value); setRangeTouched(true); setPendingSlot(null); }} /></label>
-                <button type="button" className={timePickerOpen ? "time-range-toggle open" : "time-range-toggle"} aria-label="展开时间段选择" aria-expanded={timePickerOpen} aria-controls="time-range-picker" onClick={() => setTimePickerOpen((current) => !current)}><ChevronDown size={19} /></button>
+                <button type="button" className={timePickerOpen ? "time-range-toggle open" : "time-range-toggle"} aria-label="展开时间段选择" aria-expanded={timePickerOpen} aria-controls="time-range-picker" onClick={() => { if (!timePickerOpen) initialScrollHourRef.current = Math.floor((clockToMinutes(rangeStart) ?? 540) / 60); setTimePickerOpen((current) => !current); }}><ChevronDown size={19} /></button>
               </div>
               {invalidRange ? <p className="time-range-hint error">请输入 HH:MM 格式；开始和结束不能相同。</p> : <p className="time-range-hint">{rangeMinutes ? `停留 ${minutesToDuration(rangeMinutes)}${endMinutes !== null && startMinutes !== null && endMinutes < startMinutes ? " · 次日结束" : ""}` : "可以直接改时间，或展开后拖选时间段"}</p>}
               {timePickerOpen && <div id="time-range-picker" className="time-range-picker">
-                <div className="time-segment-tabs" role="tablist" aria-label="选择一天中的时段">{TIME_SEGMENTS.map((segment, index) => <button key={segment} type="button" role="tab" aria-selected={timeSegment === index} className={timeSegment === index ? "selected" : ""} onClick={() => { setTimeSegment(index); setPendingSlot(null); }}>{segment}</button>)}</div>
-                <p className="time-range-instruction">拖动选连续时间；也可以先点开始，再点结束。每格 15 分钟。</p>
-                <div className="time-range-grid" onPointerDown={(event) => { const slot = timeSlotFromPointer(event); if (slot === null) return; event.preventDefault(); dragAnchorRef.current = slot; dragCurrentRef.current = slot; setDragSlot(slot); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (dragAnchorRef.current === null) return; const slot = timeSlotFromPointer(event); if (slot !== null && slot !== dragCurrentRef.current) { dragCurrentRef.current = slot; setDragSlot(slot); } }} onPointerUp={endTimeDrag} onPointerCancel={() => { dragAnchorRef.current = null; dragCurrentRef.current = null; setDragSlot(null); }}>
-                  {Array.from({ length: 6 }, (_, row) => <div className="time-range-hour" key={row}><span>{String(timeSegment * 6 + row).padStart(2, "0")}:00</span>{Array.from({ length: 4 }, (_, column) => { const slot = timeSegment * 24 + row * 4 + column; const minute = slot * 15; const inSelectedRange = startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes && (endMinutes > startMinutes ? minute >= startMinutes && minute < endMinutes : minute >= startMinutes || minute < endMinutes); const inDraggedRange = dragAnchorRef.current !== null && dragSlot !== null && slot >= Math.min(dragAnchorRef.current, dragSlot) && slot <= Math.max(dragAnchorRef.current, dragSlot); return <button key={slot} type="button" data-time-slot={slot} aria-label={minutesToClock(minute)} aria-pressed={inDraggedRange || pendingSlot === slot || inSelectedRange} className={inDraggedRange || pendingSlot === slot || inSelectedRange ? "selected" : ""} onClick={(event) => { if (event.detail === 0) chooseTimeSlot(slot); }}>{String(column * 15).padStart(2, "0")}</button>; })}</div>)}
+                <p className="time-range-instruction">上下滚动查看全天时间。拖动选择，或先后点选起止；每格 15 分钟。</p>
+                <div ref={timeGridRef} className="time-range-grid" aria-label="全天时间列表" onPointerDown={(event) => { const slot = timeSlotFromPointer(event); if (slot === null) return; if (event.pointerType !== "touch") event.preventDefault(); dragAnchorRef.current = slot; dragCurrentRef.current = slot; setDragSlot(slot); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (dragAnchorRef.current === null) return; const slot = timeSlotFromPointer(event); if (slot !== null && slot !== dragCurrentRef.current) { dragCurrentRef.current = slot; setDragSlot(slot); } }} onPointerUp={endTimeDrag} onPointerCancel={() => { dragAnchorRef.current = null; dragCurrentRef.current = null; setDragSlot(null); }}>
+                  {Array.from({ length: 24 }, (_, row) => <div className="time-range-hour" key={row}><span>{String(row).padStart(2, "0")}:00</span>{Array.from({ length: 4 }, (_, column) => { const slot = row * 4 + column; const minute = slot * 15; const inSelectedRange = startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes && (endMinutes > startMinutes ? minute >= startMinutes && minute < endMinutes : minute >= startMinutes || minute < endMinutes); const inDraggedRange = dragAnchorRef.current !== null && dragSlot !== null && slot >= Math.min(dragAnchorRef.current, dragSlot) && slot <= Math.max(dragAnchorRef.current, dragSlot); return <button key={slot} type="button" data-time-slot={slot} aria-label={minutesToClock(minute)} aria-pressed={inDraggedRange || pendingSlot === slot || inSelectedRange} className={inDraggedRange || pendingSlot === slot || inSelectedRange ? "selected" : ""} onClick={(event) => { if (event.detail === 0) chooseTimeSlot(slot); }}>{String(column * 15).padStart(2, "0")}</button>; })}</div>)}
                 </div>
               </div>}
             </section>
