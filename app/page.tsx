@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Ellipsis, ImageUp,
   Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin,
@@ -43,9 +43,31 @@ const SYSTEM_COVERS = [
   { id: "hangzhou", name: "西湖晨光", url: "/covers/hangzhou-west-lake.jpg" },
   { id: "xiamen", name: "海岸慢游", url: "/covers/xiamen-coast.jpg" },
 ];
-const ARRIVAL_HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
-const ARRIVAL_MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0"));
-const DURATION_PRESETS = ["30分钟", "1小时", "1.5小时", "2小时"];
+const TIME_SEGMENTS = ["凌晨", "上午", "下午", "晚上"];
+
+function minutesToClock(minutes: number) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function clockToMinutes(value: string, allowDayEnd = false) {
+  if (allowDayEnd && value === "24:00") return 1440;
+  if (!isClockTime(value)) return null;
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function durationToMinutes(value: string) {
+  const simple = /^(\d+(?:\.\d+)?)\s*(分钟|小时)$/.exec(value);
+  if (simple) return Math.round(Number(simple[1]) * (simple[2] === "小时" ? 60 : 1));
+  const mixed = /^(\d+)小时(\d+)分钟$/.exec(value);
+  return mixed ? Number(mixed[1]) * 60 + Number(mixed[2]) : null;
+}
+
+function minutesToDuration(minutes: number) {
+  if (minutes % 60 === 0) return `${minutes / 60}小时`;
+  if (minutes < 60) return `${minutes}分钟`;
+  return `${Math.floor(minutes / 60)}小时${minutes % 60}分钟`;
+}
 
 function parseLocalDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -277,10 +299,20 @@ export default function Home() {
   const [commentDraft, setCommentDraft] = useState("");
   const [editDraft, setEditDraft] = useState({ time: "", duration: "", note: "" });
   const [timePickerOpen, setTimePickerOpen] = useState(false);
-  const [pickerHour, setPickerHour] = useState("09");
-  const [pickerMinute, setPickerMinute] = useState("00");
-  const [durationCustomOpen, setDurationCustomOpen] = useState(false);
-  const editDurationMatch = /^(\d+(?:\.\d+)?)\s*(分钟|小时)$/.exec(editDraft.duration);
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [rangeTouched, setRangeTouched] = useState(false);
+  const [timeSegment, setTimeSegment] = useState(1);
+  const [pendingSlot, setPendingSlot] = useState<number | null>(null);
+  const [dragSlot, setDragSlot] = useState<number | null>(null);
+  const dragAnchorRef = useRef<number | null>(null);
+  const dragCurrentRef = useRef<number | null>(null);
+  const startMinutes = clockToMinutes(rangeStart);
+  const endMinutes = clockToMinutes(rangeEnd, true);
+  const rangeMinutes = startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes
+    ? (endMinutes - startMinutes + 1440) % 1440 || 1440
+    : null;
+  const invalidRange = Boolean((rangeStart && startMinutes === null) || (rangeEnd && endMinutes === null) || (!rangeStart && rangeEnd) || (startMinutes !== null && endMinutes !== null && startMinutes === endMinutes));
   const [storageReady, setStorageReady] = useState(false);
   const [tripId, setTripId] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -692,29 +724,62 @@ export default function Home() {
 
   const openEdit = () => {
     if (!selected) return;
-    setEditDraft({ time: isClockTime(selected.time) ? selected.time : "", duration: selected.duration, note: selected.note });
+    const start = isClockTime(selected.time) ? selected.time : "";
+    const minutes = durationToMinutes(selected.duration);
+    const end = start && minutes && minutes < 1440 ? minutesToClock((clockToMinutes(start)! + minutes) % 1440) : "";
+    setEditDraft({ time: start, duration: selected.duration, note: selected.note });
+    setRangeStart(start);
+    setRangeEnd(end);
+    setRangeTouched(false);
+    setTimeSegment(start ? Math.floor(clockToMinutes(start)! / 360) : 1);
+    setPendingSlot(null);
+    setDragSlot(null);
     setTimePickerOpen(false);
-    setDurationCustomOpen(Boolean(selected.duration && selected.duration !== "待设置" && !DURATION_PRESETS.includes(selected.duration)));
     setEditOpen(true);
   };
 
-  const toggleTimePicker = () => {
-    if (!timePickerOpen) {
-      const [hour, minute] = isClockTime(editDraft.time) ? editDraft.time.split(":") : ["09", "00"];
-      setPickerHour(hour);
-      setPickerMinute(minute);
-    }
-    setTimePickerOpen((current) => !current);
+  const applyTimeSlots = (first: number, last: number) => {
+    const from = Math.min(first, last) * 15;
+    const to = (Math.max(first, last) + 1) * 15;
+    setRangeStart(minutesToClock(from));
+    setRangeEnd(minutesToClock(to));
+    setRangeTouched(true);
+    setPendingSlot(null);
+    setDragSlot(null);
+    setTimePickerOpen(false);
   };
 
-  const updateDuration = (value: string, unit: "分钟" | "小时") => {
-    setEditDraft((current) => ({ ...current, duration: value ? `${value}${unit}` : "" }));
+  const chooseTimeSlot = (slot: number) => {
+    if (pendingSlot !== null) {
+      applyTimeSlots(pendingSlot, slot);
+    } else {
+      setRangeStart(minutesToClock(slot * 15));
+      setRangeEnd("");
+      setRangeTouched(true);
+      setPendingSlot(slot);
+    }
+  };
+
+  const timeSlotFromPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-time-slot]");
+    return target ? Number(target.dataset.timeSlot) : null;
+  };
+
+  const endTimeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragAnchorRef.current === null) return;
+    const first = dragAnchorRef.current;
+    const last = timeSlotFromPointer(event) ?? dragCurrentRef.current ?? first;
+    if (last !== first) applyTimeSlots(first, last);
+    else chooseTimeSlot(first);
+    dragAnchorRef.current = null;
+    dragCurrentRef.current = null;
+    setDragSlot(null);
   };
 
   const saveEdit = () => {
-    if (!selected || !activeDate) return;
-    const time = editDraft.time || "待安排";
-    const duration = editDraft.duration || "待设置";
+    if (!selected || !activeDate || invalidRange) return;
+    const time = rangeTouched ? rangeStart || "待安排" : editDraft.time || "待安排";
+    const duration = rangeTouched ? rangeMinutes ? minutesToDuration(rangeMinutes) : "待设置" : editDraft.duration || "待设置";
     setPlans((current) => ({
       ...current,
       [activeDate]: (current[activeDate] ?? []).map((item) => item.id === selected.id ? { ...item, ...editDraft, time, duration, meta: `${categoryStyle[item.category].label} · ${duration}` } : item),
@@ -816,36 +881,26 @@ export default function Home() {
             <DialogDescription className="edit-place-name">{selected?.title}</DialogDescription>
           </DialogHeader>
           <div className="edit-grid">
-            <section className="edit-section" aria-label="到达时间">
-              <div className="edit-section-heading"><span>到达时间</span><button type="button" className="edit-clear" onClick={() => { setEditDraft((current) => ({ ...current, time: "" })); setTimePickerOpen(false); }}>暂不安排</button></div>
-              <button type="button" className={"arrival-trigger" + (timePickerOpen ? " open" : "")} aria-expanded={timePickerOpen} aria-controls="arrival-picker" onClick={toggleTimePicker}>
-                <Clock3 size={19} />
-                <span>{editDraft.time || "选择到达时间"}</span>
-                <ChevronDown size={17} />
-              </button>
-              {timePickerOpen && <div id="arrival-picker" className="arrival-picker">
-                <div className="arrival-picker-preview">到达时间 <strong>{pickerHour}:{pickerMinute}</strong></div>
-                <div className="arrival-picker-columns">
-                  <div><span className="arrival-picker-label">小时</span><div className="arrival-picker-hours">{ARRIVAL_HOURS.map((hour) => <button type="button" key={hour} aria-label={hour + "点"} aria-pressed={pickerHour === hour} className={pickerHour === hour ? "selected" : ""} onClick={() => setPickerHour(hour)}>{hour}</button>)}</div></div>
-                  <div><span className="arrival-picker-label">分钟</span><div className="arrival-picker-minutes">{ARRIVAL_MINUTES.map((minute) => <button type="button" key={minute} aria-label={minute + "分"} aria-pressed={pickerMinute === minute} className={pickerMinute === minute ? "selected" : ""} onClick={() => setPickerMinute(minute)}>{minute}</button>)}</div></div>
-                </div>
-                <button type="button" className="arrival-confirm" onClick={() => { setEditDraft((current) => ({ ...current, time: pickerHour + ":" + pickerMinute })); setTimePickerOpen(false); }}>使用 {pickerHour}:{pickerMinute}</button>
-              </div>}
-            </section>
-            <section className="edit-section" aria-label="停留时长">
-              <div className="edit-section-heading"><span>停留时长</span><button type="button" className="edit-clear" onClick={() => { setEditDraft((current) => ({ ...current, duration: "" })); setDurationCustomOpen(false); }}>不设置</button></div>
-              <div className="duration-choices">
-                {DURATION_PRESETS.map((duration) => <button type="button" key={duration} className={!durationCustomOpen && editDraft.duration === duration ? "selected" : ""} onClick={() => { setEditDraft((current) => ({ ...current, duration })); setDurationCustomOpen(false); }}>{duration}</button>)}
-                <button type="button" className={durationCustomOpen ? "selected" : ""} aria-expanded={durationCustomOpen} onClick={() => { if (!durationCustomOpen && DURATION_PRESETS.includes(editDraft.duration)) setEditDraft((current) => ({ ...current, duration: "" })); setDurationCustomOpen((current) => !current); }}>自定义</button>
+            <section className="edit-section" aria-label="行程时间段">
+              <div className="edit-section-heading"><span>行程时间段</span><button type="button" className="edit-clear" onClick={() => { setRangeStart(""); setRangeEnd(""); setRangeTouched(true); setPendingSlot(null); }}>暂不安排</button></div>
+              <div className="time-range-entry">
+                <label><span>开始</span><input type="text" inputMode="numeric" maxLength={5} placeholder="09:00" aria-label="开始时间" value={rangeStart} onFocus={(event) => event.target.select()} onChange={(event) => { setRangeStart(event.target.value); setRangeTouched(true); setPendingSlot(null); }} /></label>
+                <span className="time-range-dash">—</span>
+                <label><span>结束</span><input type="text" inputMode="numeric" maxLength={5} placeholder="10:00" aria-label="结束时间" value={rangeEnd} onFocus={(event) => event.target.select()} onChange={(event) => { setRangeEnd(event.target.value); setRangeTouched(true); setPendingSlot(null); }} /></label>
+                <button type="button" className={timePickerOpen ? "time-range-toggle open" : "time-range-toggle"} aria-label="展开时间段选择" aria-expanded={timePickerOpen} aria-controls="time-range-picker" onClick={() => setTimePickerOpen((current) => !current)}><ChevronDown size={19} /></button>
               </div>
-              {durationCustomOpen && <div className="duration-custom">
-                <input type="number" inputMode="decimal" min="0" step="0.5" aria-label="自定义停留时长" placeholder="输入时长" value={editDurationMatch?.[1] ?? ""} onChange={(event) => updateDuration(event.target.value, (editDurationMatch?.[2] as "分钟" | "小时") ?? "小时")} />
-                <select aria-label="停留时长单位" value={editDurationMatch?.[2] ?? "小时"} onChange={(event) => updateDuration(editDurationMatch?.[1] ?? "", event.target.value as "分钟" | "小时")}><option value="分钟">分钟</option><option value="小时">小时</option></select>
+              {invalidRange ? <p className="time-range-hint error">请输入 HH:MM 格式；开始和结束不能相同。</p> : <p className="time-range-hint">{rangeMinutes ? `停留 ${minutesToDuration(rangeMinutes)}${endMinutes !== null && startMinutes !== null && endMinutes < startMinutes ? " · 次日结束" : ""}` : "可以直接改时间，或展开后拖选时间段"}</p>}
+              {timePickerOpen && <div id="time-range-picker" className="time-range-picker">
+                <div className="time-segment-tabs" role="tablist" aria-label="选择一天中的时段">{TIME_SEGMENTS.map((segment, index) => <button key={segment} type="button" role="tab" aria-selected={timeSegment === index} className={timeSegment === index ? "selected" : ""} onClick={() => { setTimeSegment(index); setPendingSlot(null); }}>{segment}</button>)}</div>
+                <p className="time-range-instruction">拖动选连续时间；也可以先点开始，再点结束。每格 15 分钟。</p>
+                <div className="time-range-grid" onPointerDown={(event) => { const slot = timeSlotFromPointer(event); if (slot === null) return; event.preventDefault(); dragAnchorRef.current = slot; dragCurrentRef.current = slot; setDragSlot(slot); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (dragAnchorRef.current === null) return; const slot = timeSlotFromPointer(event); if (slot !== null && slot !== dragCurrentRef.current) { dragCurrentRef.current = slot; setDragSlot(slot); } }} onPointerUp={endTimeDrag} onPointerCancel={() => { dragAnchorRef.current = null; dragCurrentRef.current = null; setDragSlot(null); }}>
+                  {Array.from({ length: 6 }, (_, row) => <div className="time-range-hour" key={row}><span>{String(timeSegment * 6 + row).padStart(2, "0")}:00</span>{Array.from({ length: 4 }, (_, column) => { const slot = timeSegment * 24 + row * 4 + column; const minute = slot * 15; const inSelectedRange = startMinutes !== null && endMinutes !== null && startMinutes !== endMinutes && (endMinutes > startMinutes ? minute >= startMinutes && minute < endMinutes : minute >= startMinutes || minute < endMinutes); const inDraggedRange = dragAnchorRef.current !== null && dragSlot !== null && slot >= Math.min(dragAnchorRef.current, dragSlot) && slot <= Math.max(dragAnchorRef.current, dragSlot); return <button key={slot} type="button" data-time-slot={slot} aria-label={minutesToClock(minute)} aria-pressed={inDraggedRange || pendingSlot === slot || inSelectedRange} className={inDraggedRange || pendingSlot === slot || inSelectedRange ? "selected" : ""} onClick={(event) => { if (event.detail === 0) chooseTimeSlot(slot); }}>{String(column * 15).padStart(2, "0")}</button>; })}</div>)}
+                </div>
               </div>}
             </section>
             <label className="edit-note"><span>同行备注</span><textarea rows={3} value={editDraft.note} onChange={(event) => setEditDraft((current) => ({ ...current, note: event.target.value }))} placeholder="例如：集合地点、预约信息…" /></label>
           </div>
-          <button className="dialog-primary" type="button" onClick={saveEdit}>保存安排</button>
+          <button className="dialog-primary" type="button" disabled={invalidRange} onClick={saveEdit}>保存安排</button>
         </DialogContent>
       </Dialog>
 

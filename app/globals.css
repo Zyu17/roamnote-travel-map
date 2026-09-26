@@ -81,37 +81,37 @@ button, input { font: inherit; } button { color: inherit; }
 .edit-section-heading > span, .edit-note > span { color: #526a64; font-size: 13px; font-weight: 750; }
 .edit-clear { padding: 3px 0; border: 0; background: transparent; color: #6e8980; font-size: 11px; cursor: pointer; }
 .edit-clear:hover { color: #173d38; text-decoration: underline; }
-.arrival-trigger { width: 100%; min-height: 52px; padding: 0 15px; display: flex; align-items: center; gap: 12px; border: 1px solid #d8e3dc; border-radius: 12px; background: #f8faf7; color: #173d38; text-align: left; cursor: pointer; }
-.arrival-trigger > span { flex: 1; font-size: 18px; font-weight: 750; }
-.arrival-trigger > svg:first-child { color: #6c9184; }
-.arrival-trigger > svg:last-child { color: #80928b; transition: transform .2s; }
-.arrival-trigger.open { border-color: #5e8d82; background: #f3f8f4; }
-.arrival-trigger.open > svg:last-child { transform: rotate(180deg); }
-.arrival-picker { display: grid; gap: 13px; padding: 14px; border: 1px solid #dce7df; border-radius: 13px; background: #fbfcfa; }
-.arrival-picker-preview { display: flex; align-items: center; justify-content: space-between; color: #798c85; font-size: 12px; }
-.arrival-picker-preview strong { color: #173d38; font-size: 18px; font-variant-numeric: tabular-nums; }
-.arrival-picker-columns { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 13px; }
-.arrival-picker-columns > div { min-width: 0; }
-.arrival-picker-label { display: block; margin-bottom: 7px; color: #62776f; font-size: 11px; font-weight: 750; }
-.arrival-picker-hours, .arrival-picker-minutes { display: grid; gap: 4px; }
-.arrival-picker-hours { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.arrival-picker-minutes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.arrival-picker-hours button, .arrival-picker-minutes button { min-width: 0; min-height: 32px; border: 1px solid transparent; border-radius: 8px; background: #f0f4ef; color: #49625a; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
-.arrival-picker-hours button:hover, .arrival-picker-minutes button:hover { border-color: #a4bdb0; }
-.arrival-picker-hours button.selected, .arrival-picker-minutes button.selected { background: #173d38; color: #fff; }
-.arrival-confirm { min-height: 37px; border: 0; border-radius: 9px; background: #e5f0e9; color: #245549; font-weight: 750; cursor: pointer; }
-.duration-choices { display: flex; flex-wrap: wrap; gap: 7px; }
-.duration-choices button { min-height: 34px; padding: 0 11px; border: 1px solid #dce5df; border-radius: 9px; background: #fff; color: #5d716b; font-size: 12px; font-weight: 700; cursor: pointer; }
-.duration-choices button:hover { border-color: #95b6a7; }
-.duration-choices button.selected { border-color: #5e8d82; background: #e9f3ed; color: #285d51; }
-.duration-custom { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
-.duration-custom input, .duration-custom select, .edit-note textarea, .comment-compose input { width: 100%; border: 1px solid #dce2db; border-radius: 11px; background: #f8f9f6; color: #173d38; outline: none; }
-.duration-custom input, .duration-custom select { height: 42px; padding: 0 11px; }
-.duration-custom input { min-width: 0; }
+.time-range-entry { display: grid; grid-template-columns: minmax(0, 1fr) 15px minmax(0, 1fr) 42px; align-items: center; gap: 8px; }
+.time-range-entry label { min-width: 0; display: grid; gap: 5px; }
+.time-range-entry label span { color: #84938e; font-size: 11px; font-weight: 700; }
+.time-range-entry input { width: 100%; min-width: 0; height: 48px; padding: 0 12px; border: 1px solid #d8e3dc; border-radius: 11px; background: #f8faf7; color: #173d38; font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; outline: 0; }
+.time-range-entry input:focus { border-color: #4f8177; box-shadow: 0 0 0 3px rgba(79,129,119,.12); }
+.time-range-dash { align-self: end; margin-bottom: 13px; color: #92a69d; text-align: center; }
+.time-range-toggle { width: 42px; height: 48px; align-self: end; display: grid; place-items: center; border: 1px solid #d8e3dc; border-radius: 11px; background: #f8faf7; color: #4e7468; cursor: pointer; }
+.time-range-toggle.open { background: #e9f3ed; border-color: #6e9a88; }
+.time-range-toggle.open svg { transform: rotate(180deg); }
+.time-range-hint { min-height: 16px; margin: 0; color: #718780; font-size: 11px; }
+.time-range-hint.error { color: #af544b; }
+.time-range-picker { padding: 13px; display: grid; gap: 10px; border: 1px solid #dce7df; border-radius: 13px; background: #fbfcfa; }
+.time-segment-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.time-segment-tabs button { min-height: 33px; border: 0; border-radius: 8px; background: #edf3ed; color: #668078; font-size: 12px; font-weight: 750; cursor: pointer; }
+.time-segment-tabs button.selected { background: #173d38; color: white; }
+.time-range-instruction { margin: 0; color: #81918b; font-size: 11px; line-height: 1.4; }
+.time-range-grid { display: grid; gap: 3px; user-select: none; touch-action: none; }
+.time-range-hour { display: grid; grid-template-columns: 48px repeat(4, 1fr); gap: 4px; align-items: center; }
+.time-range-hour > span { color: #7a8d85; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.time-range-hour button { min-width: 0; min-height: 34px; border: 1px solid #e0e8e1; border-radius: 7px; background: #f2f6f1; color: #577369; font-size: 11px; font-weight: 700; cursor: crosshair; }
+.time-range-hour button:hover { border-color: #7fae98; background: #e5f0e7; }
+.time-range-hour button.selected { border-color: #2c6556; background: #d2e8d8; color: #184c3e; }
+.time-range-hour button:focus-visible { outline: 2px solid #245c50; outline-offset: 1px; }
+.edit-note { display: grid; gap: 8px; }
 .edit-note { display: grid; gap: 8px; }
 .edit-note textarea { padding: 11px 12px; resize: vertical; line-height: 1.5; }
-.duration-custom input:focus, .duration-custom select:focus, .edit-note textarea:focus, .comment-compose input:focus { border-color: #4f8177; box-shadow: 0 0 0 3px rgba(79,129,119,.12); }
+.edit-note textarea:focus, .comment-compose input:focus { border-color: #4f8177; box-shadow: 0 0 0 3px rgba(79,129,119,.12); }
+.edit-note textarea, .comment-compose input { width: 100%; border: 1px solid #dce2db; border-radius: 11px; background: #f8f9f6; color: #173d38; outline: none; }
 .dialog-primary { height: 43px; border: 0; border-radius: 11px; background: #173d38; color: #fff; font-weight: 700; cursor: pointer; }
+.dialog-primary:disabled { opacity: .5; cursor: not-allowed; }
+.edit-dialog > .dialog-primary { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -9px 18px rgba(248,249,246,.88); }
 .date-dialog { width: min(690px, calc(100vw - 28px)); max-width: 690px; }.date-step-selector { display: grid; grid-template-columns: 1fr 28px 1fr; align-items: center; gap: 8px; }.date-step-selector button { min-height: 53px; padding: 8px 12px; display: grid; gap: 3px; border: 1px solid #dce5df; border-radius: 12px; background: #f7f9f6; color: #49655f; text-align: left; cursor: pointer; }.date-step-selector button:last-child { text-align: right; }.date-step-selector button.active { border-color: #4f8177; background: #eaf3ee; box-shadow: 0 0 0 3px rgba(79,129,119,.1); }.date-step-selector small { color: #7c8c87; font-size: 10px; font-weight: 750; }.date-step-selector strong { font-size: 13px; }.date-step-selector i { height: 1px; background: #b9cbc4; }.date-calendar-shell { overflow-x: auto; padding: 4px 2px; border: 1px solid #e2e8e1; border-radius: 14px; background: #fbfcf9; }.date-calendar-shell [data-slot="calendar"] { margin: 0 auto; color: #173d38; }.date-calendar-shell .rdp-range_start { border-radius: 9px 0 0 9px !important; background: linear-gradient(90deg, transparent 50%, #fae5af 50%) !important; }.date-calendar-shell .rdp-range_middle { border-radius: 0 !important; background: #fae5af !important; }.date-calendar-shell .rdp-range_end { border-radius: 0 9px 9px 0 !important; background: linear-gradient(90deg, #fae5af 50%, transparent 50%) !important; }.date-calendar-shell .rdp-range_start.rdp-range_end { background: transparent !important; }.date-calendar-shell button[data-range-start="true"], .date-calendar-shell button[data-range-end="true"] { border-radius: 9px !important; background: #173d38 !important; color: #fff !important; }.date-calendar-shell button[data-range-middle="true"] { border-radius: 0 !important; background: transparent !important; color: #3e4d49 !important; }.date-dialog-preview { min-height: 44px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 11px; background: #e8f3ed; color: #315d54; }.date-dialog-preview span { font-weight: 750; }.date-dialog-preview small { margin-left: auto; color: #72847f; }.trip-edit-date { width: fit-content; display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; border: 0; border-radius: 9px; background: #edf4ef; color: #315d54; font-size: 12px; font-weight: 750; cursor: pointer; }
 .comment-list { max-height: 340px; overflow-y: auto; display: grid; gap: 16px; padding: 5px 1px; }.comment { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; }.comment .avatar { width: 34px; height: 34px; margin: 0; border: 0; }.comment p { margin: 0; padding: 10px 12px; border-radius: 5px 13px 13px 13px; background: #f1f4ef; color: #566963; font-size: 13px; line-height: 1.5; }.comment p strong { display: block; margin-bottom: 2px; color: #25453f; }.comment-compose { display: grid; grid-template-columns: 1fr auto; gap: 8px; }.comment-compose input { height: 43px; padding: 0 12px; }.comment-compose button { padding: 0 17px; border: 0; border-radius: 11px; background: #173d38; color: white; font-weight: 700; cursor: pointer; }
 .trip-dialog-cover { height: 160px; margin: -24px -24px 2px; overflow: hidden; border-radius: 20px 20px 0 0; }.trip-dialog-cover img { width: 100%; height: 100%; object-fit: cover; }.trip-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }.trip-overview button { padding: 13px 8px; display: grid; gap: 3px; border: 1px solid #e0e5de; border-radius: 12px; background: #fafbf8; text-align: left; cursor: pointer; }.trip-overview button:hover { border-color: #6f938a; background: #f2f6f2; }.trip-overview span, .trip-overview small { color: #83908c; font-size: 11px; }.trip-overview strong { font-size: 14px; }
