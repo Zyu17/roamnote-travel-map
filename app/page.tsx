@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Ellipsis, ImageUp,
-  Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin,
+  Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin, Scan,
   MessageCircle, Navigation, Pencil, Plus, Search, Share2, Sparkles, Star,
   TrainFront, Trash2, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -450,10 +450,16 @@ export default function Home() {
   }, [activeDay]);
 
   useEffect(() => {
-    const first = activeDate ? plans[activeDate]?.[0] : undefined;
-    setSelectedId(first?.id ?? null);
+    setSelectedId(null);
+    setMapPickedPlace(null);
     window.setTimeout(() => mapRef.current?.fitToItems(), 80);
   }, [activeDate, storageReady]);
+
+  useEffect(() => {
+    if (mobilePanel !== "map" || !mapConnected) return;
+    const frame = window.requestAnimationFrame(() => mapRef.current?.fitToItems());
+    return () => window.cancelAnimationFrame(frame);
+  }, [mobilePanel, mapConnected]);
 
   useEffect(() => {
     if (!mapConnected || !activeDate || items.length < 2) return;
@@ -689,7 +695,7 @@ export default function Home() {
     try {
       const result = await mapRef.current?.planRoute(optimized);
       if (result) setRouteInfo((current) => ({ ...current, [activeDate]: result }));
-      showNotice("已按距离重排行程，并生成高德驾车路线");
+      showNotice("已按距离重排行程，并更新路线里程估算");
     } catch { showNotice("顺序已优化，路线服务暂时不可用"); }
     setOptimizing(false);
   };
@@ -863,6 +869,7 @@ export default function Home() {
             <div className={`cloud-sync-pill ${cloudState}`}><span className="live-dot" />{cloudState === "synced" ? "行程已同步云端" : cloudState === "offline" ? "暂存本机，等待云端" : "正在同步行程"}</div>
           </div>
           <div className="map-controls" aria-label="地图控制">
+            <button type="button" className="overview-button" aria-label="全览当天所有地点" title="全览当天所有地点" onClick={() => { if (!items.length) { showNotice("当天还没有地点可全览"); return; } setSelectedId(null); setMapPickedPlace(null); mapRef.current?.fitToItems(); }}><Scan size={17} />全览当天</button><span />
             <button type="button" aria-label="放大" onClick={() => mapRef.current?.zoomIn()}><ZoomIn size={19} /></button><button type="button" aria-label="缩小" onClick={() => mapRef.current?.zoomOut()}><ZoomOut size={19} /></button><span />
             <button type="button" aria-label="定位" onClick={async () => { try { await mapRef.current?.locate(); showNotice("已定位到当前位置"); } catch (error) { showNotice(error instanceof Error ? error.message : "定位失败"); } }}><LocateFixed size={19} /></button>
             <button type="button" aria-label="切换图层" onClick={() => showNotice(`已切换为${mapRef.current?.cycleStyle() ?? "地图"}`)}><Layers3 size={19} /></button>
