@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Ellipsis, ImageUp,
-  Footprints, GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin, Scan,
+  GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin, Scan,
   MessageCircle, Navigation, Pencil, Plus, Search, Share2, Sparkles, Star,
   TrainFront, Trash2, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -14,6 +14,8 @@ import { Calendar } from "@/components/ui/calendar";
 import type { DateRange } from "react-day-picker";
 import { zhCN } from "date-fns/locale";
 import { AMapCanvas, type AMapHandle, type MapItem, type SearchPlace } from "@/components/amap-canvas";
+import { TravelLeg, useTravelRoutes } from "@/components/travel-leg";
+import { formatTravelDistance, formatTravelDuration, type TravelMode } from "@/lib/travel-route";
 
 type Category = "sight" | "food" | "stay" | "transit";
 export type PlanItem = MapItem & {
@@ -22,6 +24,7 @@ export type PlanItem = MapItem & {
   duration: string;
   note: string;
   address: string;
+  travelMode?: TravelMode;
 };
 type Plans = Record<string, PlanItem[]>;
 type IndexedPlans = Record<number, PlanItem[]>;
@@ -234,10 +237,6 @@ function distanceMeters(a: [number, number], b: [number, number]) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function approximateDistance(items: PlanItem[]) {
-  return items.slice(1).reduce((sum, item, index) => sum + distanceMeters(items[index].lnglat, item.lnglat), 0);
-}
-
 function optimizeByDistance(items: PlanItem[]) {
   if (items.length < 3) return items;
   const times = [...items].map((item) => item.time).sort();
@@ -300,7 +299,6 @@ export default function Home() {
   const [editOpen, setEditOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"map" | "plan">("map");
   const [mapConnected, setMapConnected] = useState(false);
-  const [routeInfo, setRouteInfo] = useState<Record<string, { distance: number; duration: number }>>({});
   const [optimizing, setOptimizing] = useState(false);
   const [notice, setNotice] = useState("");
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
@@ -348,12 +346,13 @@ export default function Home() {
   const priorLocalTripRef = useRef<string | null>(null);
   const cachedOwnerIdRef = useRef<string | null>(null);
 
+  const { legs, states: legStates, refresh: refreshLeg } = useTravelRoutes(items, authState === "signed", `${tripId}:${activeDate}`);
   const stats = useMemo(() => {
-    const actual = activeDate ? routeInfo[activeDate] : undefined;
-    const distance = actual?.distance || approximateDistance(items);
-    const duration = actual?.duration || Math.max(1, Math.round(distance / 4500 * 3600));
-    return { distance: `${(distance / 1000).toFixed(1)} 公里`, duration: `约 ${Math.max(1, Math.round(duration / 3600))} 小时` };
-  }, [activeDate, items, routeInfo]);
+    if (!legs.length) return { distance: "0 公里", duration: "暂无交通路段" };
+    const results = legs.map(leg => legStates[leg.key]?.result).filter(result => result?.status === "ready");
+    if (results.length !== legs.length) return { distance: `${results.length}/${legs.length} 段已查询`, duration: authState !== "signed" ? "登录后查询交通" : legs.some(leg => !legStates[leg.key] || legStates[leg.key].loading) ? "查询交通中…" : "部分路线不可用" };
+    return { distance: formatTravelDistance(results.reduce((sum, result) => sum + result.distance, 0)), duration: `交通约 ${formatTravelDuration(results.reduce((sum, result) => sum + result.duration, 0))}` };
+  }, [legs, legStates, authState]);
 
   useEffect(() => {
     try {
@@ -619,16 +618,6 @@ export default function Home() {
   }, [mobilePanel, mapConnected]);
 
   useEffect(() => {
-    if (!mapConnected || !activeDate || items.length < 2) return;
-    const timer = window.setTimeout(() => {
-      void mapRef.current?.planRoute(items).then((result) => {
-        if (result) setRouteInfo((current) => ({ ...current, [activeDate]: result }));
-      }).catch(() => undefined);
-    }, 180);
-    return () => window.clearTimeout(timer);
-  }, [activeDate, items, mapConnected]);
-
-  useEffect(() => {
     if (!dialogOpen) return;
     const cleaned = query.trim();
     if (cleaned.length < 2) { setSearchResults(starterPlaces); setSearchState("idle"); return; }
@@ -753,7 +742,6 @@ export default function Home() {
     setDateRange(dateDraft);
     setBrowseEnd(dateDraft.end);
     setActiveDay(nextActiveDay >= 0 ? nextActiveDay : 0);
-    setRouteInfo({});
     setDateOpen(false);
     showNotice(`行程日期已更新为 ${formatDateRange(nextDays)}；仅保留重叠日期的安排`);
   };
@@ -789,7 +777,6 @@ export default function Home() {
     setPlans({});
     setFavoriteIds([]);
     setComments([]);
-    setRouteInfo({});
     setSelectedId(null);
     setCloudReady(false);
     setCloudState("loading");
@@ -907,11 +894,7 @@ export default function Home() {
     setOptimizing(true);
     const optimized = optimizeByDistance([...items]);
     setPlans((current) => ({ ...current, [activeDate]: optimized }));
-    try {
-      const result = await mapRef.current?.planRoute(optimized);
-      if (result) setRouteInfo((current) => ({ ...current, [activeDate]: result }));
-      showNotice("已按距离重排行程，并更新路线里程估算");
-    } catch { showNotice("顺序已优化，路线服务暂时不可用"); }
+    showNotice("已按地点距离重排；交通耗时将按各段所选方式重新查询");
     setOptimizing(false);
   };
 
@@ -1065,13 +1048,14 @@ export default function Home() {
             <span className={`day-page-status ${outsideTripRange ? "outside" : ""}`} aria-live="polite">{outsideTripRange ? `${navigationDays[activeDay]?.date} · 行程范围外` : `第 ${activeDay + 1} 天 / 共 ${days.length} 天`}</span>
           </div>
           {outsideTripRange && <div className="outside-range-note"><CalendarDays size={15} /><span>这一天尚未纳入当前行程；你仍可查看或添加安排，修改日期后可正式纳入。</span><button type="button" onClick={openDateEditor}>调整日期</button></div>}
-          <div className="day-summary"><span><Footprints size={15} /> {stats.distance}</span><span><Clock3 size={15} /> {stats.duration}</span><button type="button" disabled={optimizing || readOnlyTrip} onClick={optimizeRoute}><Sparkles size={15} /> {optimizing ? "计算中" : "优化路线"}</button></div>
+          <div className="day-summary"><span><Navigation size={15} /> {stats.distance}</span><span><Clock3 size={15} /> {stats.duration}</span><button type="button" disabled={optimizing || readOnlyTrip} onClick={optimizeRoute}><Sparkles size={15} /> {optimizing ? "计算中" : "优化路线"}</button></div>
           <div className="timeline" aria-label={`${navigationDays[activeDay]?.date ?? "当前日期"}行程`}>
             {items.map((item, index) => {
               const config = categoryStyle[item.category]; const Icon = config.icon;
-              return <button type="button" draggable={!readOnlyTrip} key={item.id} className={selected?.id === item.id ? "timeline-item selected" : "timeline-item"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)}>
-                <span className="drag"><GripVertical size={16} /></span><span className="item-time">{item.time}</span><span className={`item-icon ${config.className}`}><Icon size={16} /></span><span className="item-copy"><strong>{item.title}</strong><small>{item.meta}</small></span>{index < items.length - 1 && <span className="travel-leg">{item.category === "transit" ? "地铁 28 分钟" : "前往下一站"}</span>}
-              </button>;
+              const leg = legs[index];
+              return <div className="timeline-entry" key={item.id}><button type="button" draggable={!readOnlyTrip} className={selected?.id === item.id ? "timeline-item selected" : "timeline-item"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)}>
+                <span className="drag"><GripVertical size={16} /></span><span className="item-time">{item.time}</span><span className={`item-icon ${config.className}`}><Icon size={16} /></span><span className="item-copy"><strong>{item.title}</strong><small>{item.meta}</small></span>
+              </button>{leg && <TravelLeg leg={leg} state={legStates[leg.key]} readOnly={readOnlyTrip} onRefresh={() => refreshLeg(leg.key)} onMode={(mode) => { if (!activeDate || readOnlyTrip) return; setPlans(current => ({ ...current, [activeDate]: (current[activeDate] ?? []).map(stop => stop.id === item.id ? { ...stop, travelMode: mode } : stop) })); }} />}</div>;
             })}
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
