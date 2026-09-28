@@ -9,6 +9,10 @@ export type MapItem = {
   category: "sight" | "food" | "stay" | "transit";
   position: { left: string; top: string };
   lnglat: [number, number];
+  mapKey?: string;
+  dayNumber?: number;
+  stopNumber?: number;
+  dayLabel?: string;
 };
 
 export type SearchPlace = {
@@ -106,10 +110,21 @@ function fitDayOnMap(map: FitMap, markers: FitMarker[], host: HTMLDivElement | n
   map.setFitView(markers, false, [vertical, vertical, horizontal, horizontal], 15);
 }
 
-function demoRoutePath(items: MapItem[]) {
+function isDayTransition(first: MapItem, second: MapItem) {
+  return first.dayNumber !== undefined && second.dayNumber !== undefined && first.dayNumber !== second.dayNumber;
+}
+
+function markerLabel(item: MapItem, index: number) {
+  return item.dayNumber !== undefined && item.stopNumber !== undefined
+    ? `${item.dayNumber}-${item.stopNumber}`
+    : String(index + 1);
+}
+
+function demoRoutePath(items: MapItem[], transitions = false) {
   if (items.length < 2) return "";
   return items.slice(0, -1).map((item, index) => {
     const next = items[index + 1];
+    if (isDayTransition(item, next) !== transitions) return "";
     const x1 = parseFloat(item.position.left) * 10;
     const y1 = parseFloat(item.position.top) * 7;
     const x2 = parseFloat(next.position.left) * 10;
@@ -201,7 +216,7 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
     const map = mapRef.current;
     if (!ready || !map || !window.AMap) return;
     if (markersRef.current.length) map.remove(markersRef.current);
-    const itemsKey = items.map((item) => `${item.id}:${item.lnglat.join(",")}`).join("|");
+    const itemsKey = items.map((item) => `${item.mapKey ?? item.id}:${item.lnglat.join(",")}:${item.dayNumber ?? ""}:${item.stopNumber ?? ""}`).join("|");
     const itemsChanged = lastItemsKeyRef.current !== itemsKey;
     if (itemsChanged) {
       if (itineraryLinesRef.current.length) map.remove(itineraryLinesRef.current);
@@ -209,13 +224,14 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
         const next = items[index + 1];
         if (item.lnglat[0] === next.lnglat[0] && item.lnglat[1] === next.lnglat[1]) return [];
         const path = curvedLeg(item.lnglat, next.lnglat, index);
+        const transition = isDayTransition(item, next);
         return [new window.AMap.Polyline({
           path,
-          strokeColor: "#246e64",
-          strokeOpacity: 0.88,
-          strokeWeight: 3,
+          strokeColor: transition ? "#8da5a0" : "#246e64",
+          strokeOpacity: transition ? 0.55 : 0.88,
+          strokeWeight: transition ? 2 : 3,
           strokeStyle: "dashed",
-          strokeDasharray: [9, 7],
+          strokeDasharray: transition ? [4, 8] : [9, 7],
           lineJoin: "round",
           lineCap: "round",
           zIndex: 30,
@@ -226,12 +242,15 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
     }
     const markers = items.map((item, index) => {
       const activeClass = selectedId === item.id ? "is-active" : "";
+      const overviewClass = item.dayNumber !== undefined ? "is-trip-overview" : "";
       const safeTitle = item.title.replace(/[<>"&]/g, "");
+      const label = markerLabel(item, index);
+      const markerDescription = item.dayLabel ? `第${item.dayNumber}天（${item.dayLabel}）第${item.stopNumber}站 · ${safeTitle}` : safeTitle;
       const marker = new window.AMap.Marker({
         position: item.lnglat,
-        title: safeTitle,
+        title: markerDescription,
         anchor: "center",
-        content: `<button class="amap-custom-marker ${activeClass}" aria-label="${safeTitle}" style="--marker-color:${colors[item.category]}"><b>${index + 1}</b></button>`,
+        content: `<button class="amap-custom-marker ${activeClass} ${overviewClass}" aria-label="${label} ${safeTitle}" style="--marker-color:${colors[item.category]}"><b>${label}</b></button>`,
         zIndex: selectedId === item.id ? 150 : 100,
       });
       marker.on("click", () => onSelectRef.current(item));
@@ -300,8 +319,8 @@ export const AMapCanvas = forwardRef<AMapHandle, Props>(function AMapCanvas(
   return <div className="demo-map" aria-label="上海行程演示地图">
     <div className="river river-one" /><div className="river river-two" /><div className="park park-one" /><div className="park park-two" />
     <span className="district-label label-jingan">静安区</span><span className="district-label label-huangpu">黄浦区</span><span className="district-label label-pudong">浦东新区</span>
-    <svg className="demo-route" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true"><path className="route-shadow" d={demoRoutePath(items)} /><path className="route-line" d={demoRoutePath(items)} /></svg>
-    {items.map((item, index) => <button type="button" key={item.id} className={`demo-marker marker-${item.category} ${selectedId === item.id ? "active" : ""}`} style={item.position} onClick={() => onSelect(item)} aria-label={item.title}><span>{index + 1}</span><strong>{item.title}</strong></button>)}
+    <svg className="demo-route" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true"><path className="route-shadow" d={demoRoutePath(items)} /><path className="route-line" d={demoRoutePath(items)} /><path className="route-transition" d={demoRoutePath(items, true)} /></svg>
+    {items.map((item, index) => <button type="button" key={item.mapKey ?? item.id} className={`demo-marker marker-${item.category} ${item.dayNumber !== undefined ? "is-trip-overview" : ""} ${selectedId === item.id ? "active" : ""}`} style={item.position} onClick={() => onSelect(item)} aria-label={`${item.dayLabel ? `第${item.dayNumber}天（${item.dayLabel}）第${item.stopNumber}站` : markerLabel(item, index)} ${item.title}`}><span>{markerLabel(item, index)}</span><strong>{item.title}</strong></button>)}
     {loadFailed && <div className="map-error"><AlertTriangle size={16} /> 高德地图暂时加载失败，已切换为演示地图</div>}
   </div>;
 });

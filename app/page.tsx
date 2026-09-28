@@ -256,6 +256,7 @@ function optimizeByDistance(items: PlanItem[]) {
 
 export default function Home() {
   const mapRef = useRef<AMapHandle>(null);
+  const pendingMapSelection = useRef<{ dayIndex: number; id: number } | null>(null);
   const draggedId = useRef<number | null>(null);
   const daySwipeStart = useRef<number | null>(null);
   const [activeDay, setActiveDay] = useState(1);
@@ -275,6 +276,16 @@ export default function Home() {
   const activeDate = navigationDays[activeDay]?.iso;
   const outsideTripRange = Boolean(activeDate && (activeDate < dateRange.start || activeDate > dateRange.end));
   const items = useMemo(() => activeDate ? plans[activeDate] ?? [] : [], [activeDate, plans]);
+  const tripMapItems = useMemo<MapItem[]>(() => days.flatMap((day, dayIndex) =>
+    (plans[day.iso] ?? []).map((item, stopIndex) => ({
+      ...item,
+      mapKey: `${day.iso}:${item.id}`,
+      dayNumber: dayIndex + 1,
+      stopNumber: stopIndex + 1,
+      dayLabel: day.shortDate,
+    }))), [days, plans]);
+  const [tripOverview, setTripOverview] = useState(false);
+  const mapItems = tripOverview ? tripMapItems : items;
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const [mapPickedPlace, setMapPickedPlace] = useState<SearchPlace | null>(null);
@@ -328,6 +339,14 @@ export default function Home() {
   const [libraryState, setLibraryState] = useState<"loading" | "ready" | "error">("loading");
   const [cloudReady, setCloudReady] = useState(false);
   const [cloudState, setCloudState] = useState<"loading" | "synced" | "offline">("loading");
+  const [authState, setAuthState] = useState<"loading" | "guest" | "signed" | "error">("loading");
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountReady, setAccountReady] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [readOnlyTrip, setReadOnlyTrip] = useState(false);
+  const hadLocalTripRef = useRef(false);
+  const priorLocalTripRef = useRef<string | null>(null);
+  const cachedOwnerIdRef = useRef<string | null>(null);
 
   const stats = useMemo(() => {
     const actual = activeDate ? routeInfo[activeDate] : undefined;
@@ -352,10 +371,13 @@ export default function Home() {
       if (saved) setPlans(normalizeStoredPlans(JSON.parse(saved), storedRange));
       const sharedTripId = new URLSearchParams(window.location.search).get("trip");
       const localTripId = window.localStorage.getItem("roamnote-trip-id-v1");
+      hadLocalTripRef.current = isTripId(localTripId);
+      cachedOwnerIdRef.current = window.localStorage.getItem("roamnote-cache-owner-v1");
+      priorLocalTripRef.current = isTripId(localTripId) ? localTripId : null;
       const nextTripId = isTripId(sharedTripId) ? sharedTripId : isTripId(localTripId) ? localTripId : createTripId();
       const storedDeviceId = window.localStorage.getItem("roamnote-device-id-v1");
       const nextDeviceId = isTripId(storedDeviceId) ? storedDeviceId : createTripId();
-      window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
+      if (!isTripId(sharedTripId)) window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
       window.localStorage.setItem("roamnote-device-id-v1", nextDeviceId);
       setTripId(nextTripId);
       setDeviceId(nextDeviceId);
@@ -365,22 +387,126 @@ export default function Home() {
 
   useEffect(() => {
     if (!storageReady) return;
+    if (readOnlyTrip) return;
     try { window.localStorage.setItem("roamnote-plans-v3", JSON.stringify(plans)); } catch { /* Device storage is optional. */ }
-  }, [plans, storageReady]);
+  }, [plans, storageReady, readOnlyTrip]);
 
   useEffect(() => {
     if (!storageReady) return;
+    if (readOnlyTrip) return;
     try { window.localStorage.setItem("roamnote-dates-v1", JSON.stringify(dateRange)); } catch { /* Device storage is optional. */ }
-  }, [dateRange, storageReady]);
+  }, [dateRange, storageReady, readOnlyTrip]);
 
   useEffect(() => {
-    if (!storageReady || !tripId) return;
+    if (!storageReady || !deviceId) return;
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`/api/trip?id=${encodeURIComponent(tripId)}`);
+        const response = await fetch("/api/auth/me");
+        if (!response.ok) throw new Error("account unavailable");
+        const payload = await response.json() as { account?: { id: string; email: string } | null };
+        if (!payload.account) {
+          if (!cancelled) {
+            if (cachedOwnerIdRef.current) {
+              try {
+                const oldOwner = cachedOwnerIdRef.current;
+                window.localStorage.setItem(`roamnote-account-backup-${oldOwner}`, JSON.stringify({
+                  tripId: window.localStorage.getItem("roamnote-trip-id-v1"),
+                  plans: window.localStorage.getItem("roamnote-plans-v3"),
+                  dates: window.localStorage.getItem("roamnote-dates-v1"),
+                }));
+                for (const key of ["roamnote-trip-id-v1", "roamnote-plans-v3", "roamnote-plans-v2", "roamnote-dates-v1", "roamnote-cache-owner-v1"]) window.localStorage.removeItem(key);
+              } catch { /* Storage is optional; still hide another account's data. */ }
+              setPlans({});
+              const sharedTrip = new URLSearchParams(window.location.search).get("trip");
+              setTripId(isTripId(sharedTrip) ? sharedTrip : createTripId());
+              const start = toIsoDate(new Date());
+              const nextRange = { start, end: addIsoDays(start, 2) };
+              setDateRange(nextRange);
+              setDateDraft(nextRange);
+              setBrowseEnd(nextRange.end);
+              setTripTitle("我的新行程");
+              setCoverUrl(DEFAULT_COVER_URL);
+              setFavoriteIds([]);
+              setComments([]);
+              cachedOwnerIdRef.current = null;
+            }
+            setAuthState("guest"); setAccountReady(true); setCloudState("offline");
+          }
+          return;
+        }
+        if (!cachedOwnerIdRef.current) {
+          const claim = await fetch("/api/auth/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId, legacyTripId: cachedOwnerIdRef.current ? null : priorLocalTripRef.current }) });
+          if (!claim.ok) throw new Error("legacy claim failed");
+        }
+        const library = await fetch("/api/trips");
+        if (!library.ok) throw new Error("library unavailable");
+        const result = await library.json() as { trips?: TripLibraryItem[] };
+        const remoteTrips = Array.isArray(result.trips) ? result.trips : [];
+        if (cancelled) return;
+        setAccountEmail(payload.account.email);
+        setAuthState("signed");
+        setLibraryTrips(remoteTrips);
+        const sharedTrip = new URLSearchParams(window.location.search).get("trip");
+        const previousOwner = cachedOwnerIdRef.current;
+        const localTripId = window.localStorage.getItem("roamnote-trip-id-v1");
+        const isAccountCache = previousOwner === payload.account.id;
+        const belongsToAccount = remoteTrips.some((trip) => trip.id === localTripId);
+        if (previousOwner && !isAccountCache) {
+          try {
+            window.localStorage.setItem(`roamnote-account-backup-${previousOwner}`, JSON.stringify({
+              tripId: localTripId,
+              plans: window.localStorage.getItem("roamnote-plans-v3"),
+              dates: window.localStorage.getItem("roamnote-dates-v1"),
+            }));
+            for (const key of ["roamnote-trip-id-v1", "roamnote-plans-v3", "roamnote-plans-v2", "roamnote-dates-v1"]) window.localStorage.removeItem(key);
+          } catch { /* Storage is optional. */ }
+          setPlans({});
+          setFavoriteIds([]);
+          setComments([]);
+          setTripTitle("我的新行程");
+          setCoverUrl(DEFAULT_COVER_URL);
+          const start = toIsoDate(new Date());
+          const nextRange = { start, end: addIsoDays(start, 2) };
+          setDateRange(nextRange);
+          setDateDraft(nextRange);
+          setBrowseEnd(nextRange.end);
+        }
+        if (!isTripId(sharedTrip)) {
+          if (!isAccountCache && !belongsToAccount && remoteTrips[0]) {
+            if (!previousOwner && hadLocalTripRef.current) {
+              try { window.localStorage.setItem("roamnote-guest-backup-v1", JSON.stringify({ plans: window.localStorage.getItem("roamnote-plans-v3"), dates: window.localStorage.getItem("roamnote-dates-v1") })); } catch { /* Optional backup. */ }
+            }
+            setTripId(remoteTrips[0].id);
+            window.localStorage.setItem("roamnote-trip-id-v1", remoteTrips[0].id);
+          } else if (previousOwner && !isAccountCache && !belongsToAccount) {
+            const nextTripId = createTripId();
+            setTripId(nextTripId);
+            window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
+          }
+        }
+        window.localStorage.setItem("roamnote-cache-owner-v1", payload.account.id);
+        cachedOwnerIdRef.current = payload.account.id;
+        setAccountReady(true);
+      } catch {
+        if (!cancelled) { setAuthState("error"); setCloudState("offline"); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [storageReady, deviceId]);
+
+  useEffect(() => {
+    if (!storageReady || !accountReady || !tripId) return;
+    const url = new URL(window.location.href);
+    const isSharedLink = url.searchParams.get("trip") === tripId;
+    if (authState !== "signed" && !isSharedLink) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const share = isSharedLink ? url.searchParams.get("share") ?? tripId : null;
+        const response = await fetch(`/api/trip?id=${encodeURIComponent(tripId)}${share ? `&share=${encodeURIComponent(share)}` : ""}`);
         if (response.ok) {
-          const payload = await response.json() as { title?: unknown; snapshot?: unknown };
+          const payload = await response.json() as { title?: unknown; snapshot?: unknown; canEdit?: boolean };
           const snapshot = normalizeCloudSnapshot(payload.snapshot);
           if (snapshot && !cancelled) {
             setTripTitle(typeof payload.title === "string" && payload.title.trim() ? payload.title : snapshot.title);
@@ -391,29 +517,56 @@ export default function Home() {
             setPlans(snapshot.plans);
             setFavoriteIds(snapshot.favoriteIds);
             setComments(snapshot.comments);
-            setCloudState("synced");
+            setReadOnlyTrip(!payload.canEdit);
+            setCloudState(payload.canEdit ? "synced" : "offline");
+            setCloudReady(Boolean(payload.canEdit));
+          }
+        } else if (isSharedLink) {
+          if (!cancelled) {
+            setPlans({});
+            setSelectedId(null);
+            setReadOnlyTrip(true);
+            setCloudReady(false);
+            setCloudState("offline");
+            setNotice("分享链接无效或已失效");
+          }
+        } else if (response.status === 404 && authState === "signed") {
+          if (!cancelled) { setReadOnlyTrip(false); setCloudReady(true); }
+        } else if (response.status === 403 && authState === "signed" && !isSharedLink) {
+          if (!cancelled) {
+            const nextTripId = createTripId();
+            setTripId(nextTripId);
+            setPlans({});
+            setFavoriteIds([]);
+            setComments([]);
+            setTripTitle("我的新行程");
+            setCoverUrl(DEFAULT_COVER_URL);
+            const start = toIsoDate(new Date());
+            const nextRange = { start, end: addIsoDays(start, 2) };
+            setDateRange(nextRange);
+            setDateDraft(nextRange);
+            setBrowseEnd(nextRange.end);
+            window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
           }
         } else if (response.status !== 404) {
           throw new Error("cloud read failed");
         }
       } catch {
         if (!cancelled) setCloudState("offline");
-      } finally {
-        if (!cancelled) setCloudReady(true);
       }
     })();
     return () => { cancelled = true; };
-  }, [storageReady, tripId]);
+  }, [storageReady, accountReady, authState, tripId]);
 
   useEffect(() => {
-    if (!cloudReady || !tripId || !deviceId) return;
+    if (!cloudReady || authState !== "signed" || readOnlyTrip || !tripId) return;
     const snapshot: TripSnapshot = { title: tripTitle, coverUrl, dateRange, plans, favoriteIds, comments };
     const timer = window.setTimeout(async () => {
       try {
         const response = await fetch("/api/trip", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: tripId, ownerId: deviceId, title: tripTitle, snapshot }),
+          body: JSON.stringify({ id: tripId, title: tripTitle, snapshot }),
         });
         if (!response.ok) throw new Error("cloud write failed");
         setCloudState("synced");
@@ -422,12 +575,12 @@ export default function Home() {
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [cloudReady, tripId, deviceId, tripTitle, coverUrl, dateRange, plans, favoriteIds, comments]);
+  }, [cloudReady, authState, readOnlyTrip, tripId, tripTitle, coverUrl, dateRange, plans, favoriteIds, comments]);
 
   useEffect(() => {
-    if (!libraryOpen || !deviceId) return;
+    if (!libraryOpen || authState !== "signed") return;
     let cancelled = false;
-    void fetch(`/api/trips?owner=${encodeURIComponent(deviceId)}`)
+    void fetch("/api/trips")
       .then(async (response) => {
         if (!response.ok) throw new Error("library read failed");
         const payload = await response.json() as { trips?: TripLibraryItem[] };
@@ -435,7 +588,7 @@ export default function Home() {
       })
       .catch(() => { if (!cancelled) setLibraryState("error"); });
     return () => { cancelled = true; };
-  }, [libraryOpen, deviceId, cloudState]);
+  }, [libraryOpen, authState, cloudState]);
 
   useEffect(() => {
     if (navigationDays.length) setActiveDay((current) => Math.min(current, navigationDays.length - 1));
@@ -450,7 +603,11 @@ export default function Home() {
   }, [activeDay]);
 
   useEffect(() => {
-    setSelectedId(null);
+    const pending = pendingMapSelection.current;
+    if (pending && days[pending.dayIndex]?.iso === activeDate) {
+      setSelectedId(pending.id);
+      pendingMapSelection.current = null;
+    } else setSelectedId(null);
     setMapPickedPlace(null);
     window.setTimeout(() => mapRef.current?.fitToItems(), 80);
   }, [activeDate, storageReady]);
@@ -504,22 +661,49 @@ export default function Home() {
   };
 
   const openDateEditor = () => {
+    if (readOnlyTrip) { showNotice("分享行程仅供查看，不能修改"); return; }
     setDateDraft(dateRange);
     setDateSelectionStep("start");
     setDateOpen(true);
   };
 
   const openLibrary = () => {
+    if (authState === "error") { showNotice("账户服务暂不可用，请刷新后再试"); return; }
+    if (authState !== "signed") { goToLogin(); return; }
     setLibraryState("loading");
     setLibraryOpen(true);
   };
 
+  const goToLogin = () => window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+
+  const logout = async () => {
+    if (!readOnlyTrip && !cloudReady && !window.confirm("尚未确认当前行程已保存到云端。退出会清除本机缓存，仍要退出吗？")) return;
+    if (cloudReady && !readOnlyTrip && tripId) {
+      try {
+        const response = await fetch("/api/trip", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: tripId, title: tripTitle, snapshot: { title: tripTitle, coverUrl, dateRange, plans, favoriteIds, comments } }),
+        });
+        if (!response.ok) throw new Error("save failed");
+      } catch {
+        if (!window.confirm("当前行程尚未同步到云端。现在退出会清除本机未保存的修改，仍要退出吗？")) return;
+      }
+    }
+    const response = await fetch("/api/auth/logout", { method: "POST" });
+    if (!response.ok) { showNotice("退出失败，请稍后重试"); return; }
+    for (const key of ["roamnote-trip-id-v1", "roamnote-plans-v3", "roamnote-plans-v2", "roamnote-dates-v1", "roamnote-cache-owner-v1"]) window.localStorage.removeItem(key);
+    window.location.assign(window.location.pathname);
+  };
+
   const selectDay = (index: number) => {
+    setTripOverview(false);
     setActiveDay(index);
     setDayPage(Math.floor(index / 3));
   };
 
   const moveActiveDay = (direction: -1 | 1) => {
+    setTripOverview(false);
     setActiveDay((current) => {
       if (direction === 1 && current >= navigationDays.length - 1) {
         setBrowseEnd((value) => addIsoDays(value, 3));
@@ -552,6 +736,7 @@ export default function Home() {
   };
 
   const saveDateRange = () => {
+    if (readOnlyTrip) return;
     const nextDays = buildDays(dateDraft.start, dateDraft.end);
     if (!nextDays.length) {
       showNotice("结束日期不能早于出发日期");
@@ -577,6 +762,7 @@ export default function Home() {
     if (!isTripId(nextTripId) || nextTripId === tripId) { setLibraryOpen(false); return; }
     setCloudReady(false);
     setCloudState("loading");
+    setReadOnlyTrip(false);
     setActiveDay(0);
     setDayPage(0);
     setTripId(nextTripId);
@@ -584,6 +770,7 @@ export default function Home() {
       window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
       const url = new URL(window.location.href);
       url.searchParams.set("trip", nextTripId);
+      url.searchParams.delete("share");
       window.history.replaceState({}, "", url);
     } catch { /* URL and device storage are optional. */ }
     setLibraryOpen(false);
@@ -606,6 +793,7 @@ export default function Home() {
     setSelectedId(null);
     setCloudReady(false);
     setCloudState("loading");
+    setReadOnlyTrip(false);
     setActiveDay(0);
     setDayPage(0);
     setTripId(nextTripId);
@@ -613,6 +801,7 @@ export default function Home() {
       window.localStorage.setItem("roamnote-trip-id-v1", nextTripId);
       const url = new URL(window.location.href);
       url.searchParams.set("trip", nextTripId);
+      url.searchParams.delete("share");
       window.history.replaceState({}, "", url);
     } catch { /* URL and device storage are optional. */ }
     setLibraryOpen(false);
@@ -620,6 +809,7 @@ export default function Home() {
   };
 
   const uploadCover = (event: ChangeEvent<HTMLInputElement>) => {
+    if (readOnlyTrip) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -634,9 +824,9 @@ export default function Home() {
   };
 
   const deleteTrip = async (id: string) => {
-    if (!deviceId || !window.confirm("删除后将无法恢复这份云端行程，确定删除吗？")) return;
+    if (authState !== "signed" || !window.confirm("删除后将无法恢复这份云端行程，确定删除吗？")) return;
     try {
-      const response = await fetch(`/api/trip?id=${encodeURIComponent(id)}&owner=${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+      const response = await fetch(`/api/trip?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!response.ok) throw new Error("delete failed");
       setLibraryTrips((current) => current.filter((trip) => trip.id !== id));
       if (id === tripId) { createNewTrip(); return; }
@@ -645,12 +835,36 @@ export default function Home() {
   };
 
   const selectItem = (mapItem: MapItem) => {
+    setTripOverview(false);
     setMapPickedPlace(null);
     setSelectedId(mapItem.id);
     mapRef.current?.focusItem(mapItem);
   };
 
+  const selectMapItem = (mapItem: MapItem) => {
+    if (!tripOverview || mapItem.dayNumber === undefined) { selectItem(mapItem); return; }
+    const dayIndex = mapItem.dayNumber - 1;
+    setTripOverview(false);
+    setMapPickedPlace(null);
+    if (dayIndex === activeDay) setSelectedId(mapItem.id);
+    else {
+      pendingMapSelection.current = { dayIndex, id: mapItem.id };
+      setActiveDay(dayIndex);
+      setDayPage(Math.floor(dayIndex / 3));
+    }
+  };
+
+  const toggleTripOverview = () => {
+    if (tripOverview) { setTripOverview(false); return; }
+    if (!tripMapItems.length) { showNotice("这段旅程还没有安排地点"); return; }
+    setSelectedId(null);
+    setMapPickedPlace(null);
+    setTripOverview(true);
+    setMobilePanel("map");
+  };
+
   const addPlace = (place: SearchPlace) => {
+    if (readOnlyTrip) { showNotice("分享行程仅供查看，不能添加地点"); return; }
     if (!activeDate) return;
     const category = categoryForType(place.type);
     const next: PlanItem = {
@@ -688,6 +902,7 @@ export default function Home() {
   };
 
   const optimizeRoute = async () => {
+    if (readOnlyTrip) return;
     if (!activeDate || items.length < 2) return;
     setOptimizing(true);
     const optimized = optimizeByDistance([...items]);
@@ -701,6 +916,7 @@ export default function Home() {
   };
 
   const reorderAt = (targetId: number) => {
+    if (readOnlyTrip) return;
     if (!activeDate) return;
     const sourceId = draggedId.current;
     if (!sourceId || sourceId === targetId) return;
@@ -715,11 +931,18 @@ export default function Home() {
   };
 
   const share = async () => {
-    if (!tripId) { showNotice("行程还在初始化，请稍后再试"); return; }
-    const shareUrl = new URL(window.location.href);
-    shareUrl.searchParams.set("trip", tripId);
-    try { await navigator.clipboard.writeText(shareUrl.toString()); showNotice("云端行程分享链接已复制"); }
-    catch { showNotice("当前浏览器无法复制，请从地址栏复制链接"); }
+    if (authState !== "signed") { goToLogin(); return; }
+    if (!tripId || !cloudReady || readOnlyTrip) { showNotice("请等待当前行程保存完成后再分享"); return; }
+    try {
+      const response = await fetch(`/api/trip/share?id=${encodeURIComponent(tripId)}`);
+      if (!response.ok) throw new Error("share unavailable");
+      const payload = await response.json() as { shareCode: string };
+      const shareUrl = new URL(window.location.href);
+      shareUrl.searchParams.set("trip", tripId);
+      shareUrl.searchParams.set("share", payload.shareCode);
+      await navigator.clipboard.writeText(shareUrl.toString());
+      showNotice("只读分享链接已复制");
+    } catch { showNotice("暂时无法复制分享链接，请稍后再试"); }
   };
 
   const openNavigation = () => {
@@ -789,6 +1012,7 @@ export default function Home() {
   };
 
   const saveEdit = () => {
+    if (readOnlyTrip) return;
     if (!selected || !activeDate || invalidRange) return;
     const time = rangeTouched ? rangeStart || "待安排" : editDraft.time || "待安排";
     const duration = rangeTouched ? rangeMinutes ? minutesToDuration(rangeMinutes) : "待设置" : editDraft.duration || "待设置";
@@ -801,6 +1025,7 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (authState === "loading" || authState === "error" || (authState === "signed" && cloudState === "loading")) return;
     type WebMCPContext = { registerTool: (tool: Record<string, unknown>, options?: { signal?: AbortSignal }) => void | Promise<void> };
     const context = (document as Document & { modelContext?: WebMCPContext }).modelContext;
     if (!context?.registerTool) return;
@@ -811,14 +1036,17 @@ export default function Home() {
       execute: () => ({ day: navigationDays[activeDay]?.date, items: items.map(({ title, time, address }) => ({ title, time, address })) }),
     }, { signal: lifecycle.signal })).catch(() => undefined);
     return () => lifecycle.abort();
-  }, [activeDay, items, navigationDays]);
+  }, [activeDay, items, navigationDays, authState, cloudState]);
 
   return (
-    <main className="app-shell">
+    <main className={readOnlyTrip ? "app-shell shared-preview" : "app-shell"}>
+      {(authState === "loading" || (authState === "signed" && cloudState === "loading")) && <div className="account-loading-overlay" role="status">正在安全加载行程…</div>}
+      {authState === "error" && <div className="account-loading-overlay account-load-error" role="alert"><div><strong>暂时无法确认账户</strong><span>为保护行程数据，连接恢复前不会显示本机缓存。</span><button type="button" onClick={() => window.location.reload()}>重新连接</button></div></div>}
       <header className="topbar">
         <div className="brand" aria-label="漫游记"><span className="brand-mark"><Navigation size={18} strokeWidth={2.4} /></span><span className="brand-name">漫游记</span></div>
         <button className="trip-switcher" type="button" onClick={openLibrary}><span className="trip-cover" style={{ backgroundImage: `url("${coverUrl}")` }} /><span className="trip-copy"><strong>{tripTitle}</strong><small>{tripDateLabel} · 4人同行</small></span><ChevronDown size={16} /></button>
         <div className="top-actions">
+          <button className="account-button" type="button" onClick={() => authState === "error" ? window.location.reload() : authState === "signed" ? setAuthOpen(true) : goToLogin()}>{authState === "signed" ? accountEmail : authState === "loading" ? "账户检查中" : authState === "error" ? "连接失败 · 重试" : "登录 / 注册"}</button>
           <div className="avatar-stack" aria-label="4 位同行者"><span className="avatar avatar-one">予</span><span className="avatar avatar-two">林</span><span className="avatar avatar-three">+2</span></div>
           <button className="icon-button comments-button" aria-label="讨论" type="button" onClick={() => setCommentsOpen(true)}><MessageCircle size={18} /><span>{comments.length}</span></button>
           <button className="share-button" type="button" onClick={share}><Share2 size={16} /> 分享</button>
@@ -837,17 +1065,17 @@ export default function Home() {
             <span className={`day-page-status ${outsideTripRange ? "outside" : ""}`} aria-live="polite">{outsideTripRange ? `${navigationDays[activeDay]?.date} · 行程范围外` : `第 ${activeDay + 1} 天 / 共 ${days.length} 天`}</span>
           </div>
           {outsideTripRange && <div className="outside-range-note"><CalendarDays size={15} /><span>这一天尚未纳入当前行程；你仍可查看或添加安排，修改日期后可正式纳入。</span><button type="button" onClick={openDateEditor}>调整日期</button></div>}
-          <div className="day-summary"><span><Footprints size={15} /> {stats.distance}</span><span><Clock3 size={15} /> {stats.duration}</span><button type="button" disabled={optimizing} onClick={optimizeRoute}><Sparkles size={15} /> {optimizing ? "计算中" : "优化路线"}</button></div>
+          <div className="day-summary"><span><Footprints size={15} /> {stats.distance}</span><span><Clock3 size={15} /> {stats.duration}</span><button type="button" disabled={optimizing || readOnlyTrip} onClick={optimizeRoute}><Sparkles size={15} /> {optimizing ? "计算中" : "优化路线"}</button></div>
           <div className="timeline" aria-label={`${navigationDays[activeDay]?.date ?? "当前日期"}行程`}>
             {items.map((item, index) => {
               const config = categoryStyle[item.category]; const Icon = config.icon;
-              return <button type="button" draggable key={item.id} className={selected?.id === item.id ? "timeline-item selected" : "timeline-item"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)}>
+              return <button type="button" draggable={!readOnlyTrip} key={item.id} className={selected?.id === item.id ? "timeline-item selected" : "timeline-item"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)}>
                 <span className="drag"><GripVertical size={16} /></span><span className="item-time">{item.time}</span><span className={`item-icon ${config.className}`}><Icon size={16} /></span><span className="item-copy"><strong>{item.title}</strong><small>{item.meta}</small></span>{index < items.length - 1 && <span className="travel-leg">{item.category === "transit" ? "地铁 28 分钟" : "前往下一站"}</span>}
               </button>;
             })}
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild><button className="add-plan-button" type="button"><Plus size={18} /> 添加地点或安排</button></DialogTrigger>
+            <DialogTrigger asChild><button className="add-plan-button" type="button" disabled={readOnlyTrip}><Plus size={18} /> 添加地点或安排</button></DialogTrigger>
             <DialogContent className="add-dialog">
               <DialogHeader><DialogTitle>搜索地点或地址</DialogTitle><DialogDescription>全国搜索；选择结果或按回车，即可直接加入 {navigationDays[activeDay]?.date}。</DialogDescription></DialogHeader>
               <label className="dialog-search"><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addDirectAddress(); } }} placeholder="例如：连云港、武康路 115 号" /></label>
@@ -862,18 +1090,20 @@ export default function Home() {
         </aside>
 
         <section className={`map-panel ${mobilePanel === "map" ? "mobile-visible" : ""}`} aria-label="行程地图">
-          <AMapCanvas ref={mapRef} items={items} selectedId={selected?.id ?? null} onSelect={selectItem} onPlacePick={(place) => { setSelectedId(null); setMapPickedPlace(place); }} onConnectionChange={setMapConnected} />
-          <div className="map-search-wrap"><button className="map-search" type="button" onClick={() => setDialogOpen(true)}><Search size={18} /><span>搜索地点或地址，直接加入行程</span><kbd>⌘ K</kbd></button></div>
+          <AMapCanvas ref={mapRef} items={mapItems} selectedId={tripOverview ? null : selected?.id ?? null} onSelect={selectMapItem} onPlacePick={(place) => { setSelectedId(null); setMapPickedPlace(place); }} onConnectionChange={setMapConnected} />
+          <div className="map-search-wrap"><button className="map-search" type="button" disabled={readOnlyTrip} onClick={() => setDialogOpen(true)}><Search size={18} /><span>搜索地点或地址，直接加入行程</span><kbd>⌘ K</kbd></button></div>
           <div className="map-provider-status">
             <div className="map-provider-pill"><span className="live-dot" />{mapConnected ? "高德地图已连接" : "正在连接高德地图"}</div>
-            <div className={`cloud-sync-pill ${cloudState}`}><span className="live-dot" />{cloudState === "synced" ? "行程已同步云端" : cloudState === "offline" ? "暂存本机，等待云端" : "正在同步行程"}</div>
+            <div className={`cloud-sync-pill ${cloudState}`}><span className="live-dot" />{readOnlyTrip ? "分享预览 · 只读" : authState === "guest" ? "登录后可同步云端" : authState === "error" ? "账户服务暂不可用" : cloudState === "synced" ? "行程已同步云端" : cloudState === "offline" ? "暂存本机，等待云端" : "正在同步行程"}</div>
           </div>
           <div className="map-controls" aria-label="地图控制">
-            <button type="button" className="overview-button" aria-label="全览当天所有地点" title="全览当天所有地点" onClick={() => { if (!items.length) { showNotice("当天还没有地点可全览"); return; } setSelectedId(null); setMapPickedPlace(null); mapRef.current?.fitToItems(); }}><Scan size={17} />全览当天</button><span />
+            <button type="button" className={`overview-button ${tripOverview ? "is-active" : ""}`} aria-label={tripOverview ? "返回当天地图" : "全览整段旅程"} aria-pressed={tripOverview} onClick={toggleTripOverview}><MapIcon size={17} />{tripOverview ? "返回当天" : "全览全程"}</button><span />
+            <button type="button" className="overview-button" aria-label="全览当天所有地点" title="全览当天所有地点" onClick={() => { if (!items.length) { showNotice("当天还没有地点可全览"); return; } setTripOverview(false); setSelectedId(null); setMapPickedPlace(null); window.requestAnimationFrame(() => mapRef.current?.fitToItems()); }}><Scan size={17} />全览当天</button><span />
             <button type="button" aria-label="放大" onClick={() => mapRef.current?.zoomIn()}><ZoomIn size={19} /></button><button type="button" aria-label="缩小" onClick={() => mapRef.current?.zoomOut()}><ZoomOut size={19} /></button><span />
             <button type="button" aria-label="定位" onClick={async () => { try { await mapRef.current?.locate(); showNotice("已定位到当前位置"); } catch (error) { showNotice(error instanceof Error ? error.message : "定位失败"); } }}><LocateFixed size={19} /></button>
             <button type="button" aria-label="切换图层" onClick={() => showNotice(`已切换为${mapRef.current?.cycleStyle() ?? "地图"}`)}><Layers3 size={19} /></button>
           </div>
+          {tripOverview && <div className="trip-overview-banner" role="status"><strong>全程总览</strong><span>{days.length} 天 · {tripMapItems.length} 个地点</span><small>点选编号可查看对应日期</small></div>}
           <div className="map-legend">{Object.entries(categoryStyle).map(([key, value]) => { const Icon = value.icon; return <span key={key}><i className={value.className}><Icon size={12} /></i>{value.label}</span>; })}</div>
           {(selected || mapPickedPlace) && <aside className="place-card" aria-live="polite">
             {selected ? <><div className="place-photo"><img src="/shanghai-cover.png" alt="雨后晨光中的上海梧桐街道" /><button type="button" aria-label="关闭地点详情" onClick={() => setSelectedId(null)}><X size={17} /></button><span>{categoryStyle[selected.category].label}</span></div><div className="place-body">
@@ -922,7 +1152,9 @@ export default function Home() {
 
       <Dialog open={tripOpen} onOpenChange={setTripOpen}><DialogContent className="trip-dialog"><div className="trip-dialog-cover"><img src={coverUrl} alt="旅行封面" /></div><DialogHeader><DialogTitle>{tripTitle}</DialogTitle><DialogDescription>{tripDateLabel} · 4人同行 · 共 {days.reduce((sum, day) => sum + (plans[day.iso]?.length ?? 0), 0)} 个安排</DialogDescription></DialogHeader><label className="trip-title-editor"><span>行程名称</span><input value={tripTitle} maxLength={60} onChange={(event) => setTripTitle(event.target.value)} placeholder="给这次旅行起个名字" /></label><div className="cover-editor"><span>系统封面</span><div className="system-cover-library">{SYSTEM_COVERS.map((preset) => <button key={preset.id} type="button" aria-pressed={coverUrl === preset.url} className={coverUrl === preset.url ? "system-cover-option active" : "system-cover-option"} onClick={() => setCoverUrl(preset.url)} style={{ backgroundImage: `url("${preset.url}")` }}><span>{preset.name}</span></button>)}</div><span className="cover-editor-label">自定义封面</span><div><label className="cover-upload-button"><ImageUp size={15} />从本地选择图片<input type="file" accept="image/*" onChange={uploadCover} /></label><button type="button" onClick={() => setCoverUrl(DEFAULT_COVER_URL)}>恢复默认</button></div><input value={coverUrl.startsWith("data:") ? "已使用本地图片" : coverUrl} onChange={(event) => setCoverUrl(event.target.value)} disabled={coverUrl.startsWith("data:")} placeholder="或粘贴图片链接 https://…" /></div><button className="trip-edit-date" type="button" onClick={() => { setTripOpen(false); openDateEditor(); }}><CalendarDays size={15} />修改行程日期</button><div className="trip-overview">{days.map((day, index) => <button type="button" key={day.iso} onClick={() => { selectDay(index); setTripOpen(false); }}><span>{day.weekday}</span><strong>{day.date}</strong><small>{plans[day.iso]?.length ?? 0} 个地点</small></button>)}</div></DialogContent></Dialog>
 
-      <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}><DialogContent className="library-dialog"><DialogHeader><DialogTitle>我的行程库</DialogTitle><DialogDescription>保存在云端的旅行都在这里，选择一项即可查看完整日期与地图路线。</DialogDescription></DialogHeader><button className="new-trip-button" type="button" onClick={createNewTrip}><Plus size={17} />新建行程</button>{libraryState === "loading" && <div className="library-sync-status" role="status"><i />正在同步行程库</div>}{libraryState === "error" && libraryTrips.length > 0 && <div className="library-sync-status error">暂时无法刷新，正在展示上次读取的行程。</div>}<div className="trip-library-list">{libraryState === "loading" && libraryTrips.length === 0 && <><div className="library-trip-skeleton" /><div className="library-trip-skeleton" /></>}{libraryState === "error" && !libraryTrips.length && <div className="library-empty">行程库暂时无法连接，请稍后重试。</div>}{libraryState === "ready" && !libraryTrips.length && <div className="library-empty"><Archive size={24} /><strong>还没有保存的行程</strong><span>当前行程完成首次云端同步后会出现在这里。</span></div>}{libraryTrips.map((trip) => <div key={trip.id} className={trip.id === tripId ? "library-trip-wrap active" : "library-trip-wrap"}><button type="button" className="library-trip" onClick={() => switchTrip(trip.id)}><span className="library-trip-cover" style={{ backgroundImage: `url("${trip.coverUrl || DEFAULT_COVER_URL}")` }} /><span className="library-trip-copy"><strong>{trip.title}</strong><small>{trip.startDate && trip.endDate ? `${trip.startDate.replaceAll("-", ".")} — ${trip.endDate.replaceAll("-", ".")}` : "日期待设置"}</small><em>{trip.planCount} 个安排 · 云端已保存</em></span>{trip.id === tripId ? <span className="current-trip-chip">当前</span> : <ChevronRight size={18} />}</button><div className="library-trip-actions">{trip.id === tripId && <button type="button" aria-label={`编辑${trip.title}`} onClick={() => { setLibraryOpen(false); setTripOpen(true); }}><Pencil size={15} />编辑</button>}<button type="button" className="delete-trip-button" aria-label={`删除${trip.title}`} onClick={() => void deleteTrip(trip.id)}><Trash2 size={15} />删除</button></div></div>)}</div></DialogContent></Dialog>
+      <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}><DialogContent className="library-dialog"><DialogHeader><DialogTitle>我的行程库</DialogTitle><DialogDescription>保存在账户下的旅行都在这里，换浏览器登录同一邮箱也可查看。</DialogDescription></DialogHeader><button className="new-trip-button" type="button" onClick={createNewTrip}><Plus size={17} />新建行程</button>{libraryState === "loading" && <div className="library-sync-status" role="status"><i />正在同步行程库</div>}{libraryState === "error" && libraryTrips.length > 0 && <div className="library-sync-status error">暂时无法刷新，正在展示上次读取的行程。</div>}<div className="trip-library-list">{libraryState === "loading" && libraryTrips.length === 0 && <><div className="library-trip-skeleton" /><div className="library-trip-skeleton" /></>}{libraryState === "error" && !libraryTrips.length && <div className="library-empty">行程库暂时无法连接，请稍后重试。</div>}{libraryState === "ready" && !libraryTrips.length && <div className="library-empty"><Archive size={24} /><strong>还没有保存的行程</strong><span>当前行程完成首次云端同步后会出现在这里。</span></div>}{libraryTrips.map((trip) => <div key={trip.id} className={trip.id === tripId ? "library-trip-wrap active" : "library-trip-wrap"}><button type="button" className="library-trip" onClick={() => switchTrip(trip.id)}><span className="library-trip-cover" style={{ backgroundImage: `url("${trip.coverUrl || DEFAULT_COVER_URL}")` }} /><span className="library-trip-copy"><strong>{trip.title}</strong><small>{trip.startDate && trip.endDate ? `${trip.startDate.replaceAll("-", ".")} — ${trip.endDate.replaceAll("-", ".")}` : "日期待设置"}</small><em>{trip.planCount} 个安排 · 云端已保存</em></span>{trip.id === tripId ? <span className="current-trip-chip">当前</span> : <ChevronRight size={18} />}</button><div className="library-trip-actions">{trip.id === tripId && <button type="button" aria-label={`编辑${trip.title}`} onClick={() => { setLibraryOpen(false); setTripOpen(true); }}><Pencil size={15} />编辑</button>}<button type="button" className="delete-trip-button" aria-label={`删除${trip.title}`} onClick={() => void deleteTrip(trip.id)}><Trash2 size={15} />删除</button></div></div>)}</div></DialogContent></Dialog>
+
+      <Dialog open={authOpen} onOpenChange={setAuthOpen}><DialogContent className="auth-dialog"><DialogHeader><DialogTitle>我的账户</DialogTitle><DialogDescription>行程保存在这个账户下；退出后，本机将不再显示该账户的行程。</DialogDescription></DialogHeader><div className="auth-form"><strong className="account-email">{accountEmail}</strong><button type="button" className="auth-secondary" onClick={() => void logout()}>退出登录</button></div></DialogContent></Dialog>
 
       {notice && <div className="notice" role="status"><Check size={16} /> {notice}</div>}
     </main>

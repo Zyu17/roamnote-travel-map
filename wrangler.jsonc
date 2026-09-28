@@ -12,6 +12,6 @@
     }
   ],
   "secrets": {
-    "required": ["AMAP_JS_KEY", "AMAP_SECURITY_CODE", "AMAP_WEB_SERVICE_KEY"]
+    "required": ["AMAP_JS_KEY", "AMAP_SECURITY_CODE", "AMAP_WEB_SERVICE_KEY", "REGISTRATION_CODE"]
   }
 }

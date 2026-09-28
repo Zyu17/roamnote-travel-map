@@ -35,3 +35,33 @@ export const travelComments = sqliteTable("travel_comments", {
   body: text("body").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [index("travel_comments_plan_created_idx").on(table.planId, table.createdAt)]);
+
+export const accounts = sqliteTable("accounts", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  // Client-side PBKDF2 proof, hashed again with a server-side random salt.
+  passwordHash: text("password_hash"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const emailCodes = sqliteTable("email_codes", {
+  email: text("email").primaryKey(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+});
+
+export const authSessions = sqliteTable("auth_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [index("auth_sessions_account_idx").on(table.accountId)]);
+
+export const authRateLimits = sqliteTable("auth_rate_limits", {
+  key: text("key").primaryKey(),
+  windowStart: integer("window_start", { mode: "timestamp_ms" }).notNull(),
+  count: integer("count").notNull().default(0),
+});
