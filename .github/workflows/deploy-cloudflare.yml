@@ -47,3 +47,7 @@ jobs:
           AMAP_SECURITY_CODE: ${{ secrets.AMAP_SECURITY_CODE }}
           AMAP_WEB_SERVICE_KEY: ${{ secrets.AMAP_WEB_SERVICE_KEY }}
           REGISTRATION_CODE: ${{ secrets.REGISTRATION_CODE }}
+      - name: Check deployed account pages and authorization
+        run: node scripts/check-deployed-auth.mjs
+        env:
+          ROAMNOTE_URL: https://roamnote-travel-map.lizeyu17.workers.dev
