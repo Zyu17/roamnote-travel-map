@@ -940,12 +940,13 @@ export default function Home() {
     window.open(`https://uri.amap.com/navigation?to=${lng},${lat},${encodeURIComponent(mapPickedPlace.name)}&mode=walk&policy=1&src=roamnote&coordinate=gaode&callnative=1`, "_blank", "noopener,noreferrer");
   };
 
-  const openEdit = () => {
-    if (!selected) return;
-    const start = isClockTime(selected.time) ? selected.time : "";
-    const minutes = durationToMinutes(selected.duration);
+  const openItemEditor = (item: PlanItem) => {
+    if (readOnlyTrip) return;
+    selectItem(item);
+    const start = isClockTime(item.time) ? item.time : "";
+    const minutes = durationToMinutes(item.duration);
     const end = start && minutes && minutes < 1440 ? minutesToClock((clockToMinutes(start)! + minutes) % 1440) : "";
-    setEditDraft({ time: start, duration: selected.duration, note: selected.note });
+    setEditDraft({ time: start, duration: item.duration, note: item.note });
     setRangeStart(start);
     setRangeEnd(end);
     setRangeTouched(false);
@@ -955,6 +956,8 @@ export default function Home() {
     setTimePickerOpen(false);
     setEditOpen(true);
   };
+
+  const openEdit = () => { if (selected) openItemEditor(selected); };
 
   const applyTimeSlots = (first: number, last: number) => {
     const from = Math.min(first, last) * 15;
@@ -1053,9 +1056,10 @@ export default function Home() {
             {items.map((item, index) => {
               const config = categoryStyle[item.category]; const Icon = config.icon;
               const leg = legs[index];
-              return <div className="timeline-entry" key={item.id}><button type="button" draggable={!readOnlyTrip} className={selected?.id === item.id ? "timeline-item selected" : "timeline-item"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)}>
+              const isSelected = selected?.id === item.id;
+              return <div className="timeline-entry" key={item.id}><div className={isSelected ? "timeline-stop selected" : "timeline-stop"}><button type="button" draggable={!readOnlyTrip} className="timeline-item" aria-pressed={isSelected} title={readOnlyTrip ? "查看地点详情" : "单击查看地点，双击编辑安排"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)} onDoubleClick={() => openItemEditor(item)}>
                 <span className="drag"><GripVertical size={16} /></span><span className="item-time">{item.time}</span><span className={`item-icon ${config.className}`}><Icon size={16} /></span><span className="item-copy"><strong>{item.title}</strong><small>{item.meta}</small></span>
-              </button>{leg && <TravelLeg leg={leg} state={legStates[leg.key]} readOnly={readOnlyTrip} onRefresh={() => refreshLeg(leg.key)} onMode={(mode) => { if (!activeDate || readOnlyTrip) return; setPlans(current => ({ ...current, [activeDate]: (current[activeDate] ?? []).map(stop => stop.id === item.id ? { ...stop, travelMode: mode } : stop) })); }} />}</div>;
+              </button>{isSelected && !readOnlyTrip && <div className="timeline-stop-actions"><button type="button" className="timeline-edit-button" aria-label={`编辑${item.title}的安排`} onClick={() => openItemEditor(item)}><Pencil size={13} />编辑安排</button><span>或双击卡片</span></div>}</div>{leg && <TravelLeg leg={leg} state={legStates[leg.key]} readOnly={readOnlyTrip} onRefresh={() => refreshLeg(leg.key)} onMode={(mode) => { if (!activeDate || readOnlyTrip) return; setPlans(current => ({ ...current, [activeDate]: (current[activeDate] ?? []).map(stop => stop.id === item.id ? { ...stop, travelMode: mode } : stop) })); }} />}</div>;
             })}
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
