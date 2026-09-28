@@ -2,6 +2,7 @@ const ALGORITHM = "client-pbkdf2-sha256";
 const ITERATIONS = 600_000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
+export const PASSWORD_MIN_LENGTH = 8;
 
 function toHex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -16,7 +17,7 @@ function fromHex(value: string) {
 }
 
 export function validPassword(value: unknown): value is string {
-  return typeof value === "string" && value.length >= 12 && new TextEncoder().encode(value).byteLength <= 256;
+  return typeof value === "string" && value.length >= PASSWORD_MIN_LENGTH && new TextEncoder().encode(value).byteLength <= 256;
 }
 
 export function randomPasswordSalt() {

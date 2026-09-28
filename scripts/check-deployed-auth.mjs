@@ -20,7 +20,10 @@ function assert(condition, message) {
 
 for (const [path, text] of [["/login", "欢迎回来"], ["/register", "邀请注册码"]]) {
   const response = await request(path, 200);
-  assert((await response.text()).includes(text), `${path}: expected account page was not served`);
+  const html = await response.text();
+  assert(html.includes(text), `${path}: expected account page was not served`);
+  assert(/id="auth-password"[^>]*minlength="8"/i.test(html), `${path}: expected 8-character password minimum`);
+  if (path === "/register") assert(/id="auth-confirm"[^>]*minlength="8"/i.test(html), `${path}: confirmation password minimum mismatch`);
   console.log(`${path}: OK`);
 }
 const me = await (await request("/api/auth/me", 200)).json();

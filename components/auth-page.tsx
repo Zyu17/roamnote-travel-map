@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, Compass, LockKeyhole, Mail } from "lucide-react";
-import { derivePasswordProof, randomPasswordSalt, validPassword } from "@/lib/password";
+import { derivePasswordProof, PASSWORD_MIN_LENGTH, randomPasswordSalt, validPassword } from "@/lib/password";
 
 type Mode = "login" | "register";
 
@@ -25,7 +25,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
     event.preventDefault();
     setError("");
     if (mode === "register" && password !== confirmPassword) { setError("两次输入的密码不一致"); return; }
-    if (!validPassword(password)) { setError("密码至少 12 位，最多 256 字节"); return; }
+    if (!validPassword(password)) { setError(`密码至少 ${PASSWORD_MIN_LENGTH} 位，最多 256 字节`); return; }
     setBusy(true);
     try {
       const normalizedEmail = email.trim().toLowerCase();
@@ -61,8 +61,8 @@ export function AuthPage({ mode }: { mode: Mode }) {
         <label htmlFor="auth-email">邮箱地址</label>
         <div className="auth-input-wrap"><Mail size={17} /><input id="auth-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /></div>
         <label htmlFor="auth-password">密码</label>
-        <div className="auth-input-wrap"><LockKeyhole size={17} /><input id="auth-password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={12} maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 12 位" /></div>
-        {mode === "register" && <><label htmlFor="auth-confirm">确认密码</label><div className="auth-input-wrap"><LockKeyhole size={17} /><input id="auth-confirm" type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="再次输入密码" /></div></>}
+        <div className="auth-input-wrap"><LockKeyhole size={17} /><input id="auth-password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={PASSWORD_MIN_LENGTH} maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={`至少 ${PASSWORD_MIN_LENGTH} 位`} /></div>
+        {mode === "register" && <><label htmlFor="auth-confirm">确认密码</label><div className="auth-input-wrap"><LockKeyhole size={17} /><input id="auth-confirm" type="password" autoComplete="new-password" required minLength={PASSWORD_MIN_LENGTH} maxLength={256} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="再次输入密码" /></div></>}
         {mode === "register" && <><label htmlFor="auth-registration-code">邀请注册码</label><div className="auth-input-wrap"><LockKeyhole size={17} /><input id="auth-registration-code" type="password" autoComplete="off" required minLength={4} maxLength={256} value={registrationCode} onChange={(event) => setRegistrationCode(event.target.value)} placeholder="至少 4 位，请向邀请你的人索取" /></div></>}
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="auth-submit" type="submit" disabled={busy}>{busy ? "请稍候…" : mode === "login" ? "登录并查看行程" : "注册并进入漫游记"}</button>
