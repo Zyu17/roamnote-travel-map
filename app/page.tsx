@@ -5,12 +5,13 @@ import {
   Archive, BedDouble, CalendarDays, Check, ChevronDown, Clock3, Ellipsis, ImageUp,
   GripVertical, Layers3, LocateFixed, Map as MapIcon, MapPin, Scan,
   MessageCircle, Navigation, Pencil, Plus, Search, Share2, Sparkles, Star,
-  TrainFront, Trash2, Utensils, Users, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
+  TrainFront, Trash2, Utensils, Users, UserRound, LogOut, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import type { DateRange } from "react-day-picker";
 import { zhCN } from "date-fns/locale";
 import { AMapCanvas, type AMapHandle, type MapItem, type SearchPlace } from "@/components/amap-canvas";
@@ -340,7 +341,7 @@ export default function Home() {
   const [authState, setAuthState] = useState<"loading" | "guest" | "signed" | "error">("loading");
   const [accountEmail, setAccountEmail] = useState("");
   const [accountReady, setAccountReady] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [readOnlyTrip, setReadOnlyTrip] = useState(false);
   const hadLocalTripRef = useRef(false);
   const priorLocalTripRef = useRef<string | null>(null);
@@ -1032,9 +1033,20 @@ export default function Home() {
         <div className="brand" aria-label="漫游记"><span className="brand-mark"><Navigation size={18} strokeWidth={2.4} /></span><span className="brand-name">漫游记</span></div>
         <button className="trip-switcher" type="button" onClick={openLibrary}><span className="trip-cover" style={{ backgroundImage: `url("${coverUrl}")` }} /><span className="trip-copy"><strong>{tripTitle}</strong><small>{tripDateLabel} · 4人同行</small></span><ChevronDown size={16} /></button>
         <div className="top-actions">
-          <button className="account-button" type="button" onClick={() => authState === "error" ? window.location.reload() : authState === "signed" ? setAuthOpen(true) : goToLogin()}>{authState === "signed" ? accountEmail : authState === "loading" ? "账户检查中" : authState === "error" ? "连接失败 · 重试" : "登录 / 注册"}</button>
-          <div className="avatar-stack" aria-label="4 位同行者"><span className="avatar avatar-one">予</span><span className="avatar avatar-two">林</span><span className="avatar avatar-three">+2</span></div>
-          <button className="icon-button comments-button" aria-label="讨论" type="button" onClick={() => setCommentsOpen(true)}><MessageCircle size={18} /><span>{comments.length}</span></button>
+          {authState === "signed" ? <DropdownMenu>
+            <DropdownMenuTrigger asChild><button className="account-button" type="button" aria-label="我的账户" disabled={loggingOut}><UserRound size={16} /><span>{loggingOut ? "正在退出" : "我的账户"}</span><ChevronDown size={13} className="account-chevron" /></button></DropdownMenuTrigger>
+            <DropdownMenuContent className="account-menu" align="start" sideOffset={10} collisionPadding={12}>
+              <DropdownMenuLabel className="account-menu-heading"><span>当前账户</span><strong>{accountEmail}</strong><small>行程独立保存在此账户下</small></DropdownMenuLabel>
+              <DropdownMenuSeparator className="account-menu-divider" />
+              <DropdownMenuItem className="account-menu-item" onSelect={openLibrary}><Archive size={16} />我的行程库</DropdownMenuItem>
+              <DropdownMenuSeparator className="account-menu-divider" />
+              <DropdownMenuItem className="account-menu-item account-menu-logout" disabled={loggingOut} onSelect={() => { setLoggingOut(true); void logout().catch(() => showNotice("退出失败，请检查网络后重试")).finally(() => setLoggingOut(false)); }}><LogOut size={16} />退出登录</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu> : <button className="account-button" type="button" aria-label={authState === "error" ? "重新连接账户" : "登录 / 注册"} disabled={authState === "loading"} onClick={() => authState === "error" ? window.location.reload() : goToLogin()}><UserRound size={16} /><span>{authState === "loading" ? "账户检查中" : authState === "error" ? "重试" : "登录 / 注册"}</span></button>}
+          <div className="collaboration-actions">
+            <button className="avatar-stack" type="button" aria-label="同行讨论" onClick={() => setCommentsOpen(true)}><span className="avatar avatar-one">予</span><span className="avatar avatar-two">林</span><span className="avatar avatar-three">+2</span></button>
+            <button className="icon-button comments-button" aria-label="讨论" type="button" onClick={() => setCommentsOpen(true)}><MessageCircle size={18} />{comments.length > 0 && <span>{comments.length}</span>}</button>
+          </div>
           <button className="share-button" type="button" onClick={share}><Share2 size={16} /> 分享</button>
         </div>
       </header>
@@ -1142,7 +1154,6 @@ export default function Home() {
 
       <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}><DialogContent className="library-dialog"><DialogHeader><DialogTitle>我的行程库</DialogTitle><DialogDescription>保存在账户下的旅行都在这里，换浏览器登录同一邮箱也可查看。</DialogDescription></DialogHeader><button className="new-trip-button" type="button" onClick={createNewTrip}><Plus size={17} />新建行程</button>{libraryState === "loading" && <div className="library-sync-status" role="status"><i />正在同步行程库</div>}{libraryState === "error" && libraryTrips.length > 0 && <div className="library-sync-status error">暂时无法刷新，正在展示上次读取的行程。</div>}<div className="trip-library-list">{libraryState === "loading" && libraryTrips.length === 0 && <><div className="library-trip-skeleton" /><div className="library-trip-skeleton" /></>}{libraryState === "error" && !libraryTrips.length && <div className="library-empty">行程库暂时无法连接，请稍后重试。</div>}{libraryState === "ready" && !libraryTrips.length && <div className="library-empty"><Archive size={24} /><strong>还没有保存的行程</strong><span>当前行程完成首次云端同步后会出现在这里。</span></div>}{libraryTrips.map((trip) => <div key={trip.id} className={trip.id === tripId ? "library-trip-wrap active" : "library-trip-wrap"}><button type="button" className="library-trip" onClick={() => switchTrip(trip.id)}><span className="library-trip-cover" style={{ backgroundImage: `url("${trip.coverUrl || DEFAULT_COVER_URL}")` }} /><span className="library-trip-copy"><strong>{trip.title}</strong><small>{trip.startDate && trip.endDate ? `${trip.startDate.replaceAll("-", ".")} — ${trip.endDate.replaceAll("-", ".")}` : "日期待设置"}</small><em>{trip.planCount} 个安排 · 云端已保存</em></span>{trip.id === tripId ? <span className="current-trip-chip">当前</span> : <ChevronRight size={18} />}</button><div className="library-trip-actions">{trip.id === tripId && <button type="button" aria-label={`编辑${trip.title}`} onClick={() => { setLibraryOpen(false); setTripOpen(true); }}><Pencil size={15} />编辑</button>}<button type="button" className="delete-trip-button" aria-label={`删除${trip.title}`} onClick={() => void deleteTrip(trip.id)}><Trash2 size={15} />删除</button></div></div>)}</div></DialogContent></Dialog>
 
-      <Dialog open={authOpen} onOpenChange={setAuthOpen}><DialogContent className="auth-dialog"><DialogHeader><DialogTitle>我的账户</DialogTitle><DialogDescription>行程保存在这个账户下；退出后，本机将不再显示该账户的行程。</DialogDescription></DialogHeader><div className="auth-form"><strong className="account-email">{accountEmail}</strong><button type="button" className="auth-secondary" onClick={() => void logout()}>退出登录</button></div></DialogContent></Dialog>
 
       {notice && <div className="notice" role="status"><Check size={16} /> {notice}</div>}
     </main>
