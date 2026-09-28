@@ -13,12 +13,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    const expectedCode = process.env.REGISTRATION_CODE;
-    if (!expectedCode || expectedCode.length < 24) {
-      return Response.json({ error: "邀请注册尚未启用，请先配置注册码" }, { status: 503 });
+    const expectedCode = process.env.REGISTRATION_CODE?.trim();
+    if (!expectedCode || expectedCode.length < 4 || expectedCode.length > 256) {
+      return Response.json({ error: "邀请码尚未正确配置，请联系管理员" }, { status: 503 });
     }
-    if (typeof payload?.registrationCode !== "string" || payload.registrationCode.length > 256 ||
-      !constantTimeEqual(await sha256(payload.registrationCode), await sha256(expectedCode))) {
+    if (await authRateLimited(request, "invite", email)) {
+      return Response.json({ error: "邀请码尝试过于频繁，请 15 分钟后再试" }, { status: 429, headers: { "Retry-After": "900" } });
+    }
+    const submittedCode = typeof payload?.registrationCode === "string" ? payload.registrationCode.trim() : "";
+    if (submittedCode.length < 4 || submittedCode.length > 256 ||
+      !constantTimeEqual(await sha256(submittedCode), await sha256(expectedCode))) {
       return Response.json({ error: "注册码不正确" }, { status: 403 });
     }
     if (await authRateLimited(request, "register", email)) return Response.json({ error: "注册尝试过于频繁，请稍后再试" }, { status: 429 });

@@ -21,6 +21,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Validate invitation configuration
+        run: node -e 'const code = (process.env.REGISTRATION_CODE ?? "").trim(); if (code.length < 4 || code.length > 256) { console.error("REGISTRATION_CODE must contain 4 to 256 characters."); process.exit(1); }'
+        env:
+          REGISTRATION_CODE: ${{ secrets.REGISTRATION_CODE }}
       - name: Install dependencies
         run: npm ci
       - name: Build Worker

@@ -32,11 +32,15 @@ export async function sha256(value: string) {
   return Array.from(new Uint8Array(digest), (part) => part.toString(16).padStart(2, "0")).join("");
 }
 
-export async function authRateLimited(request: Request, action: "login" | "register", email: string) {
+export async function authRateLimited(request: Request, action: "login" | "register" | "invite", email: string) {
   const now = Date.now();
-  const windowMs = action === "login" ? 15 * 60_000 : 60 * 60_000;
+  const windowMs = action === "register" ? 60 * 60_000 : 15 * 60_000;
   const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-  const checks = [
+  // Count invitation attempts before comparison. Changing the email must not
+  // bypass the short-code guessing limit for the same network address.
+  const checks = action === "invite" ? [
+    { key: `invite:ip:${await sha256(ip)}`, limit: 5 },
+  ] : [
     { key: `${action}:email:${await sha256(email)}`, limit: action === "login" ? 12 : 3 },
     { key: `${action}:ip:${await sha256(ip)}`, limit: action === "login" ? 60 : 20 },
   ];
