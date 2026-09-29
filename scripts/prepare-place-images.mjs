@@ -12,6 +12,7 @@ const licenseUrls = new Map([
   ["CC BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/"],
   ["CC BY-SA 2.0", "https://creativecommons.org/licenses/by-sa/2.0/"],
   ["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
+  ["CC BY 2.0", "https://creativecommons.org/licenses/by/2.0/"],
 ]);
 await mkdir(path.join(output, "originals"), { recursive: true });
 const manifest = [];
@@ -31,6 +32,8 @@ for (const source of sources) {
       signal: AbortSignal.timeout(60000),
     });
     if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error(`Download failed (${response.status}): ${source.id}`);
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > 30_000_000) throw new Error(`Source exceeds 30 MB: ${source.id}`);
     original = Buffer.from(await response.arrayBuffer());
     if (original.length > 30_000_000) throw new Error(`Source exceeds 30 MB: ${source.id}`);
     await writeFile(originalPath, original);
@@ -41,11 +44,13 @@ for (const source of sources) {
   const { data, info } = await sharp(original).rotate().resize({ width: 1200, withoutEnlargement: true })
     .webp({ quality: 85, effort: 5 }).toBuffer({ resolveWithObject: true });
   const hash = createHash("sha256").update(data).digest("hex");
+  const originalHash = createHash("sha256").update(original).digest("hex");
   const objectKey = `places/${source.id}/${hash.slice(0, 16)}.webp`;
+  const originalObjectKey = `originals/${source.id}/${originalHash.slice(0, 16)}.jpg`;
   const file = `.place-images/${source.id}.webp`;
   await writeFile(path.join(root, file), data);
   manifest.push({ ...source, sourcePageUrl, sourceImageUrl, objectKey, file,
-    originalFile: `.place-images/originals/${source.id}.jpg`,
+    originalFile: `.place-images/originals/${source.id}.jpg`, originalObjectKey, originalHash,
     contentHash: hash, contentType: "image/webp", width: info.width, height: info.height,
     changes: "已缩小尺寸、转换为 WebP，并按卡片比例显示局部画面；保留原许可。",
   });

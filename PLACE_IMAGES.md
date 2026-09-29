@@ -4,7 +4,7 @@
 
 ## 导入首批图片
 
-`data/place-images.sources.json` 是人工选择的来源清单，当前包括武康大楼、上海博物馆东馆、上海自然博物馆新馆、豫园。来源页面均已核对作者与图片许可。
+`data/place-images.sources.json` 是人工选择的来源清单，覆盖上海、北京、杭州、苏州、厦门、成都、阿尔山的首批地点。来源页面均已核对作者与图片许可。
 
 ```sh
 npm run images:prepare
@@ -19,9 +19,9 @@ npm run images:import -- --local
 npm run images:import -- --remote
 ```
 
-导入脚本先验证所有文件哈希与元数据，再执行迁移、上传图片，最后更新图库索引。重复导入按图片 ID 更新记录，不修改行程和账户。新图以内容哈希命名，避免浏览器沿用旧图。
+导入脚本先验证所有文件哈希与元数据，再执行迁移，把原始 JPEG 和展示 WebP 分别上传到私有 R2，最后更新图库索引。原图保存在 R2 的 `originals/` 前缀下，网站接口不会提供这些私有原图。重复导入按图片 ID 更新记录，不修改行程和账户。新图以内容哈希命名，避免浏览器沿用旧图。
 
-如果本机无法访问 Wikimedia，可进入 GitHub Actions 的 `Deploy Roamnote to Cloudflare Workers`，选择 `Run workflow` 并勾选 `import_images`。该任务会准备、上传图片并发布网站；普通 push 发布不会重新下载图片。打包结果作为 `roamnote-place-images` artifact 保留 30 天，应及时下载备份到轻量服务器。
+如果本机无法访问 Wikimedia，可进入 GitHub Actions 的 `Deploy Roamnote to Cloudflare Workers`，选择 `Run workflow` 并勾选 `import_images`。该任务会准备、上传图片并发布网站；普通 push 发布不会重新下载图片。GitHub 仓库只存来源清单和导入代码，不存图片二进制；流程不再生成图片 artifact。2026-09-29 早先的一次运行曾生成 30 天临时 artifact，过期后会自动消失。
 
 若导入任务提示 R2 权限不足，需要给已有 `CLOUDFLARE_API_TOKEN` 增加当前账号的 `Workers R2 Storage: Edit` 权限并更新 GitHub Secret。服务端运行通过 bucket binding 读取，不需要 S3 Access Key。
 

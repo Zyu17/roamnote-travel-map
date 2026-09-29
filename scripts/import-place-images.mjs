@@ -29,6 +29,11 @@ for (const row of records) {
   if (!filePath.startsWith(path.join(root, ".place-images") + path.sep)) throw new Error("Image file must be under .place-images.");
   const bytes = await readFile(filePath);
   if (createHash("sha256").update(bytes).digest("hex") !== row.contentHash) throw new Error(`Hash mismatch: ${row.id}`);
+  if (!row.originalObjectKey?.startsWith(`originals/${row.id}/`) || !/^[a-f0-9]{64}$/.test(row.originalHash)) throw new Error(`Invalid original backup: ${row.id}`);
+  const originalPath = path.resolve(root, row.originalFile);
+  if (!originalPath.startsWith(path.join(root, ".place-images/originals") + path.sep)) throw new Error("Original file must be under .place-images/originals.");
+  const original = await readFile(originalPath);
+  if (createHash("sha256").update(original).digest("hex") !== row.originalHash) throw new Error(`Original hash mismatch: ${row.id}`);
   const keys = ["id", "place_name", "city", "longitude", "latitude", "match_radius", "object_key", "content_type", "width", "height", "focal_x", "focal_y", "alt", "source_page_url", "source_image_url", "author", "license", "license_url", "changes", "content_hash", "approved", "updated_at"];
   const values = [row.id, row.placeName, row.city, ...row.lnglat, row.matchRadius, row.objectKey, row.contentType, row.width, row.height, row.focalX, row.focalY, row.alt, row.sourcePageUrl, row.sourceImageUrl, row.author, row.license, row.licenseUrl, row.changes, row.contentHash, 1, Date.now()];
   sql.push(`INSERT INTO place_images (${keys.join(",")}) VALUES (${values.map(quote).join(",")}) ON CONFLICT(id) DO UPDATE SET ${keys.slice(1).map((key) => `${key}=excluded.${key}`).join(",")};`);
@@ -37,7 +42,10 @@ for (const row of records) {
 }
 // Validate the entire bundle before uploading. Upload photos before publishing index rows.
 command(["d1", "migrations", "apply", "DB", mode]);
-for (const row of records) command(["r2", "object", "put", `roamnote-images/${row.objectKey}`, "--file", path.resolve(root, row.file), "--content-type", "image/webp", mode]);
+for (const row of records) {
+  command(["r2", "object", "put", `roamnote-images/${row.originalObjectKey}`, "--file", path.resolve(root, row.originalFile), "--content-type", "image/jpeg", mode]);
+  command(["r2", "object", "put", `roamnote-images/${row.objectKey}`, "--file", path.resolve(root, row.file), "--content-type", "image/webp", mode]);
+}
 const directory = await mkdtemp(path.join(tmpdir(), "roamnote-image-import-"));
 const sqlPath = path.join(directory, "images.sql");
 await writeFile(sqlPath, sql.join("\n"));

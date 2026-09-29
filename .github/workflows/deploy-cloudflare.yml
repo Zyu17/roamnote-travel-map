@@ -48,14 +48,6 @@ jobs:
       - name: Prepare reviewed destination photos
         if: github.event_name == 'workflow_dispatch' && inputs.import_images
         run: npm run images:prepare
-      - name: Save reusable image bundle
-        if: github.event_name == 'workflow_dispatch' && inputs.import_images
-        uses: actions/upload-artifact@v4
-        with:
-          name: roamnote-place-images
-          path: .place-images/
-          include-hidden-files: true
-          retention-days: 30
       - name: Import destination photos into R2 and D1
         if: github.event_name == 'workflow_dispatch' && inputs.import_images
         run: npm run images:import -- --remote
