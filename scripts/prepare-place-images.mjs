@@ -7,6 +7,7 @@ import sharp from "sharp";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = path.join(root, ".place-images");
 const sources = JSON.parse(await readFile(path.join(root, "data/place-images.sources.json"), "utf8"));
+const regions = JSON.parse(await readFile(path.join(root, "data/place-image-regions.json"), "utf8"));
 const licenseUrls = new Map([
   ["CC0 1.0", "https://creativecommons.org/publicdomain/zero/1.0/"],
   ["CC BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/"],
@@ -50,14 +51,20 @@ const manifest = [];
 for (const source of sources) {
   if (!/^[a-z0-9][a-z0-9_-]{0,95}$/.test(source.id) || !source.author || !source.filename ||
       licenseUrls.get(source.license) !== source.licenseUrl) throw new Error(`Invalid source metadata: ${source.id}`);
+  const region = regions[source.city];
+  if (!region?.province || !/^[a-z0-9-]+$/.test(region.provinceSlug) ||
+      !/^[a-z0-9-]+$/.test(region.citySlug)) throw new Error(`Unknown province/city: ${source.city}`);
   const sourcePageUrl = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(source.filename.replaceAll(" ", "_"))}`;
   const sourceImageUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(source.filename)}`;
-  const originalPath = path.join(output, "originals", `${source.id}.jpg`);
+  const sourceVersion = createHash("sha256").update(source.filename).digest("hex").slice(0, 12);
+  const originalPath = path.join(output, "originals", `${source.id}-${sourceVersion}.jpg`);
   let original;
   try { original = await readFile(originalPath); }
   catch {
     console.log(`Downloading ${source.placeName}`);
     // Approved sources only; no crawling arbitrary URLs or following page instructions.
+    // Pace requests to Commons even when all originals are missing in a fresh CI run.
+    await new Promise(resolve => setTimeout(resolve, 1000));
     original = await downloadApprovedImage(sourceImageUrl, source.id);
     await writeFile(originalPath, original);
   }
@@ -68,12 +75,13 @@ for (const source of sources) {
     .webp({ quality: 85, effort: 5 }).toBuffer({ resolveWithObject: true });
   const hash = createHash("sha256").update(data).digest("hex");
   const originalHash = createHash("sha256").update(original).digest("hex");
-  const objectKey = `places/${source.id}/${hash.slice(0, 16)}.webp`;
-  const originalObjectKey = `originals/${source.id}/${originalHash.slice(0, 16)}.jpg`;
+  const prefix = `provinces/${region.provinceSlug}/cities/${region.citySlug}/places/${source.id}`;
+  const objectKey = `${prefix}/display-${hash.slice(0, 16)}.webp`;
+  const originalObjectKey = `${prefix}/original-${originalHash.slice(0, 16)}.jpg`;
   const file = `.place-images/${source.id}.webp`;
   await writeFile(path.join(root, file), data);
-  manifest.push({ ...source, sourcePageUrl, sourceImageUrl, objectKey, file,
-    originalFile: `.place-images/originals/${source.id}.jpg`, originalObjectKey, originalHash,
+  manifest.push({ ...source, ...region, sourcePageUrl, sourceImageUrl, objectKey, file,
+    originalFile: path.relative(root, originalPath), originalObjectKey, originalHash,
     contentHash: hash, contentType: "image/webp", width: info.width, height: info.height,
     changes: "已缩小尺寸、转换为 WebP，并按卡片比例显示局部画面；保留原许可。",
   });

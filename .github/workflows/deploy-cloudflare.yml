@@ -35,6 +35,8 @@ jobs:
         run: npm ci
       - name: Check travel route calculations
         run: node scripts/check-travel-routes.mjs
+      - name: Check researched photo catalog
+        run: node scripts/check-photo-catalog.mjs
       - name: Build Worker
         run: npm run build:worker
       - name: Check destination photo API

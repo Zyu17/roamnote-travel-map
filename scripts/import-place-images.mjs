@@ -11,6 +11,7 @@ const args = process.argv.slice(2);
 if (args.length !== 1 || !["--local", "--remote"].includes(args[0])) throw new Error("Choose exactly --local or --remote.");
 const mode = args[0];
 const records = JSON.parse(await readFile(path.join(root, ".place-images/manifest.json"), "utf8"));
+const regions = JSON.parse(await readFile(path.join(root, "data/place-image-regions.json"), "utf8"));
 const wrangler = path.join(root, "node_modules/wrangler/bin/wrangler.js");
 const command = (args) => {
   const result = spawnSync(process.execPath, [wrangler, ...args, "--config", "wrangler.jsonc"], { cwd: root, stdio: "inherit", timeout: 180000,
@@ -20,7 +21,11 @@ const command = (args) => {
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
 const sql = [];
 for (const row of records) {
-  if (!/^[a-z0-9][a-z0-9_-]{0,95}$/.test(row.id) || !row.objectKey.startsWith(`places/${row.id}/`) ||
+  const prefix = `provinces/${row.provinceSlug}/cities/${row.citySlug}/places/${row.id}`;
+  if (!/^[a-z0-9][a-z0-9_-]{0,95}$/.test(row.id) || !row.province ||
+      !/^[a-z0-9-]+$/.test(row.provinceSlug) || !/^[a-z0-9-]+$/.test(row.citySlug) ||
+      JSON.stringify(regions[row.city]) !== JSON.stringify({ province: row.province, provinceSlug: row.provinceSlug, citySlug: row.citySlug }) ||
+      !row.objectKey.startsWith(`${prefix}/display-`) ||
       !Array.isArray(row.names) || !row.names.length || row.contentType !== "image/webp" || !row.author || !row.licenseUrl) throw new Error("Invalid image manifest.");
   if (!row.lnglat.every(Number.isFinite) || Math.abs(row.lnglat[0]) > 180 || Math.abs(row.lnglat[1]) > 90 ||
       !Number.isFinite(row.matchRadius) || row.matchRadius < 1 || row.matchRadius > 30000 ||
@@ -29,7 +34,7 @@ for (const row of records) {
   if (!filePath.startsWith(path.join(root, ".place-images") + path.sep)) throw new Error("Image file must be under .place-images.");
   const bytes = await readFile(filePath);
   if (createHash("sha256").update(bytes).digest("hex") !== row.contentHash) throw new Error(`Hash mismatch: ${row.id}`);
-  if (!row.originalObjectKey?.startsWith(`originals/${row.id}/`) || !/^[a-f0-9]{64}$/.test(row.originalHash)) throw new Error(`Invalid original backup: ${row.id}`);
+  if (!row.originalObjectKey?.startsWith(`${prefix}/original-`) || !/^[a-f0-9]{64}$/.test(row.originalHash)) throw new Error(`Invalid original backup: ${row.id}`);
   const originalPath = path.resolve(root, row.originalFile);
   if (!originalPath.startsWith(path.join(root, ".place-images/originals") + path.sep)) throw new Error("Original file must be under .place-images/originals.");
   const original = await readFile(originalPath);

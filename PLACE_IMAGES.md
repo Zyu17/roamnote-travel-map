@@ -2,9 +2,11 @@
 
 图片存入私有 R2 bucket `roamnote-images`，D1 保存地点名称、GCJ-02 坐标、别名、来源、作者、许可和图片对象路径。网站仅通过 `/media/<图片ID>` 提供已审核的展示图，不提供任意对象路径访问。
 
+R2 是扁平对象存储，“文件夹”是对象 key 的前缀。现在按 `provinces/<省份>/cities/<城市>/places/<景点ID>/` 组织，每个景点同一目录下放 `original-<哈希>.jpg` 和 `display-<哈希>.webp`。省市名称与稳定的英文目录名由 `data/place-image-regions.json` 管理，例如 `provinces/zhejiang/cities/hangzhou/places/hangzhou-leifeng-pagoda/`。直辖市在省级和市级各占一级。这样将来迁往 OSS 时也能原样复制对象 key。
+
 ## 导入首批图片
 
-`data/place-images.sources.json` 是人工选择的来源清单，覆盖上海、北京、杭州、苏州、厦门、成都、阿尔山的首批地点。来源页面均已核对作者与图片许可。
+`data/place-images.sources.json` 是人工选择的来源清单，目前覆盖上海、北京、杭州、苏州、厦门、成都、阿尔山的 22 个地点。`data/popular-photo-routes.json` 记录参考官方游览线路、已优先收录的景点 ID 和出处，用来决定下一批图片优先级；它还不是应用内的自动行程模板。攻略页只作为线路研究资料，图片来源另行核对作者与许可，不能直接抓取攻略配图。
 
 ```sh
 npm run images:prepare
@@ -19,7 +21,7 @@ npm run images:import -- --local
 npm run images:import -- --remote
 ```
 
-导入脚本先验证所有文件哈希与元数据，再执行迁移，把原始 JPEG 和展示 WebP 分别上传到私有 R2，最后更新图库索引。原图保存在 R2 的 `originals/` 前缀下，网站接口不会提供这些私有原图。重复导入按图片 ID 更新记录，不修改行程和账户。新图以内容哈希命名，避免浏览器沿用旧图。
+导入脚本先验证所有文件哈希与元数据，再执行迁移，把原始 JPEG 和展示 WebP 分别上传到私有 R2，最后更新图库索引。网站接口不会提供私有原图。重复导入按图片 ID 更新记录，不修改行程和账户。新图以内容哈希命名，避免浏览器沿用旧图。迁移到省/市前缀时先写新对象、再切换 D1 指针；旧前缀对象暂时保留以便回退，不会自动删除。
 
 如果本机无法访问 Wikimedia，可进入 GitHub Actions 的 `Deploy Roamnote to Cloudflare Workers`，选择 `Run workflow` 并勾选 `import_images`。该任务会准备、上传图片并发布网站；普通 push 发布不会重新下载图片。GitHub 仓库只存来源清单和导入代码，不存图片二进制；流程不再生成图片 artifact。2026-09-29 早先的一次运行曾生成 30 天临时 artifact，过期后会自动消失。
 
@@ -27,7 +29,7 @@ npm run images:import -- --remote
 
 ## 添加地点
 
-向来源清单添加同结构记录，然后重新准备和导入。`names` 使用明确的别名，不自动去掉“分店”“东馆”等区分地点的词。坐标必须是 GCJ-02，与高德一致；不能直接复制照片 EXIF 的 WGS-84 坐标。
+向来源清单添加同结构记录，然后重新准备和导入。新城市先在 `data/place-image-regions.json` 登记所属省份及省/市目录名，并运行 `node scripts/check-photo-catalog.mjs`。`names` 使用明确的别名，不自动去掉“分店”“东馆”等区分地点的词。坐标必须是 GCJ-02，与高德一致；不能直接复制照片 EXIF 的 WGS-84 坐标。
 
 `matchRadius` 控制同名匹配距离。普通地点建议 200–1500 米；博物馆东馆暂用 3000 米兼容现有演示行程的近似坐标。卡片只有在名称/别名和距离都满足条件时才显示图片。
 

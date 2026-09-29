@@ -1,0 +1,23 @@
+[
+  {
+    "id": "shanghai-classic-citywalk",
+    "name": "上海南京路—外滩—陆家嘴",
+    "city": "上海",
+    "sourceUrl": "https://english.shanghai.gov.cn/en-FAQs-StudyinShanghai/20251124/9f1658ae899240d19c52784bddfed782.html",
+    "placeIds": ["shanghai-nanjing-road", "shanghai-bund", "shanghai-oriental-pearl"]
+  },
+  {
+    "id": "beijing-central-axis-classics",
+    "name": "北京天安门—故宫—天坛",
+    "city": "北京",
+    "sourceUrl": "https://english.beijing.gov.cn/travellinginbeijing/routes/202603/t20260320_4562366.html",
+    "placeIds": ["beijing-tiananmen-square", "beijing-forbidden-city", "beijing-temple-of-heaven"]
+  },
+  {
+    "id": "suzhou-ancient-city-two-days",
+    "name": "苏州古城经典两日游（已收录景点）",
+    "city": "苏州",
+    "sourceUrl": "https://english.suzhou.gov.cn/szsenglish/lty/201911/7f48ca0c35f8494582ca05b34c8f36e8.shtml",
+    "placeIds": ["suzhou-tiger-hill", "suzhou-shantang-street", "suzhou-humble-administrators-garden", "suzhou-museum"]
+  }
+]

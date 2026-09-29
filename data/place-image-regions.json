@@ -1,0 +1,9 @@
+{
+  "上海": { "province": "上海市", "provinceSlug": "shanghai", "citySlug": "shanghai" },
+  "北京": { "province": "北京市", "provinceSlug": "beijing", "citySlug": "beijing" },
+  "杭州": { "province": "浙江省", "provinceSlug": "zhejiang", "citySlug": "hangzhou" },
+  "苏州": { "province": "江苏省", "provinceSlug": "jiangsu", "citySlug": "suzhou" },
+  "厦门": { "province": "福建省", "provinceSlug": "fujian", "citySlug": "xiamen" },
+  "成都": { "province": "四川省", "provinceSlug": "sichuan", "citySlug": "chengdu" },
+  "阿尔山": { "province": "内蒙古自治区", "provinceSlug": "inner-mongolia", "citySlug": "arxan" }
+}
