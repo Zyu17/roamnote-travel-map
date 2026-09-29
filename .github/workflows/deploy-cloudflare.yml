@@ -82,6 +82,11 @@ jobs:
         run: node scripts/check-deployed-auth.mjs
         env:
           ROAMNOTE_URL: https://roamnote-travel-map.lizeyu17.workers.dev
+      - name: Check imported destination photos on the live website
+        if: github.event_name == 'workflow_dispatch' && inputs.import_images
+        run: node scripts/check-deployed-place-images.mjs
+        env:
+          ROAMNOTE_URL: https://roamnote-travel-map.lizeyu17.workers.dev
       - name: Check AMap routing provider
         continue-on-error: true
         run: node scripts/check-amap-routing.mjs
