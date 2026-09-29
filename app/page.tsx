@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import type { DateRange } from "react-day-picker";
 import { zhCN } from "date-fns/locale";
 import { AMapCanvas, type AMapHandle, type MapItem, type SearchPlace } from "@/components/amap-canvas";
@@ -299,6 +300,7 @@ export default function Home() {
   const [tripOpen, setTripOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ tripId: string | null; date: string; id: number; title: string } | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"map" | "plan">("map");
   const [mapConnected, setMapConnected] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
@@ -1012,6 +1014,24 @@ export default function Home() {
     showNotice("安排已保存");
   };
 
+  const requestRemoveItem = (item: PlanItem) => {
+    if (readOnlyTrip || !activeDate) return;
+    setRemoveTarget({ tripId, date: activeDate, id: item.id, title: item.title });
+  };
+
+  const removeItem = () => {
+    if (!removeTarget) return;
+    if (readOnlyTrip || removeTarget.tripId !== tripId || removeTarget.date !== activeDate) {
+      setRemoveTarget(null);
+      showNotice("行程已切换，请重新选择要移除的安排");
+      return;
+    }
+    setPlans(current => ({ ...current, [removeTarget.date]: (current[removeTarget.date] ?? []).filter(item => item.id !== removeTarget.id) }));
+    if (selectedId === removeTarget.id) { setSelectedId(null); setEditOpen(false); }
+    setRemoveTarget(null);
+    showNotice(`已从当天行程移除 ${removeTarget.title}`);
+  };
+
   useEffect(() => {
     if (authState === "loading" || authState === "error" || (authState === "signed" && cloudState === "loading")) return;
     type WebMCPContext = { registerTool: (tool: Record<string, unknown>, options?: { signal?: AbortSignal }) => void | Promise<void> };
@@ -1072,7 +1092,7 @@ export default function Home() {
               const isSelected = selected?.id === item.id;
               return <div className="timeline-entry" key={item.id}><div className={`timeline-stop${isSelected ? " selected" : ""}${isSelected && !readOnlyTrip ? " has-actions" : ""}`}><button type="button" draggable={!readOnlyTrip} className="timeline-item" aria-pressed={isSelected} title={readOnlyTrip ? "查看地点详情" : "单击查看地点，双击编辑安排"} onDragStart={() => { draggedId.current = item.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => reorderAt(item.id)} onClick={() => selectItem(item)} onDoubleClick={() => openItemEditor(item)}>
                 <span className="drag"><GripVertical size={16} /></span><span className="item-time">{item.time}</span><span className={`item-icon ${config.className}`}><Icon size={16} /></span><span className="item-copy"><strong>{item.title}</strong><small>{item.meta}</small></span>
-              </button>{isSelected && !readOnlyTrip && <div className="timeline-stop-actions"><button type="button" className="timeline-edit-button" aria-label={`编辑${item.title}的安排`} onClick={() => openItemEditor(item)}><Pencil size={13} />编辑安排</button></div>}</div>{leg && <TravelLeg leg={leg} state={legStates[leg.key]} readOnly={readOnlyTrip} onRefresh={() => refreshLeg(leg.key)} onMode={(mode) => { if (!activeDate || readOnlyTrip) return; setPlans(current => ({ ...current, [activeDate]: (current[activeDate] ?? []).map(stop => stop.id === item.id ? { ...stop, travelMode: mode } : stop) })); }} />}</div>;
+              </button>{isSelected && !readOnlyTrip && <div className="timeline-stop-actions"><button type="button" className="timeline-edit-button" aria-label={`编辑${item.title}的安排`} onClick={() => openItemEditor(item)}><Pencil size={13} />编辑安排</button><DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="timeline-more-button" aria-label={`${item.title}的更多操作`}><Ellipsis size={16} /></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="stop-action-menu" collisionPadding={12}><DropdownMenuItem className="account-menu-item account-menu-logout" onSelect={() => requestRemoveItem(item)}><Trash2 size={15} />从当天行程移除</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>}</div>{leg && <TravelLeg leg={leg} state={legStates[leg.key]} readOnly={readOnlyTrip} onRefresh={() => refreshLeg(leg.key)} onMode={(mode) => { if (!activeDate || readOnlyTrip) return; setPlans(current => ({ ...current, [activeDate]: (current[activeDate] ?? []).map(stop => stop.id === item.id ? { ...stop, travelMode: mode } : stop) })); }} />}</div>;
             })}
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1117,6 +1137,10 @@ export default function Home() {
       </section>
 
       <nav className="mobile-nav" aria-label="移动端视图切换"><button type="button" className={mobilePanel === "map" ? "active" : ""} onClick={() => setMobilePanel("map")}><MapIcon size={18} />地图</button><button type="button" className={mobilePanel === "plan" ? "active" : ""} onClick={() => setMobilePanel("plan")}><CalendarDays size={18} />行程</button><button type="button" onClick={() => setCommentsOpen(true)}><Users size={18} />同行</button></nav>
+
+      <AlertDialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
+        <AlertDialogContent className="remove-stop-dialog"><AlertDialogHeader><AlertDialogTitle>移除这条安排？</AlertDialogTitle><AlertDialogDescription>将“{removeTarget?.title}”从 {removeTarget?.date.replaceAll("-", ".")} 的行程中移除。其他日期的安排和地点收藏不会改变。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel asChild><button type="button" className="remove-stop-cancel">取消</button></AlertDialogCancel><AlertDialogAction asChild><button type="button" className="remove-stop-confirm" onClick={removeItem}>确认移除</button></AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="edit-dialog">

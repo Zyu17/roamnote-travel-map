@@ -82,11 +82,14 @@ button, input { font: inherit; } button { color: inherit; }
 .timeline-stop { position: relative; border-radius: 14px; transition: background .18s ease, box-shadow .18s ease; }
 .timeline-stop.selected { background: #fff; box-shadow: 0 5px 18px rgba(35,57,50,.07); }
 .timeline-stop.selected .timeline-item:hover { background: transparent; }
-.timeline-stop-actions { position: absolute; right: 9px; bottom: 10px; display: flex; align-items: center; }
-.timeline-stop.has-actions .item-copy small { padding-right: 88px; }
+.timeline-stop-actions { position: absolute; right: 9px; bottom: 10px; display: flex; align-items: center; gap: 4px; }
+.timeline-stop.has-actions .item-copy small { padding-right: 120px; }
 .timeline-edit-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; padding: 4px 7px; border: 1px solid #dae6df; border-radius: 8px; color: #246e64; background: #f3f8f4; font-size: 11px; cursor: pointer; }
 .timeline-edit-button:hover { background: #e7f1ea; border-color: #9cb9aa; }
 .timeline-edit-button:focus-visible { outline: 2px solid #498a7b; outline-offset: 2px; }
+.timeline-more-button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid #dae6df; border-radius: 8px; color: #57756a; background: #f3f8f4; cursor: pointer; }.timeline-more-button:hover, .timeline-more-button[data-state="open"] { background: #e7f1ea; }.timeline-more-button:focus-visible { outline: 2px solid #498a7b; outline-offset: 2px; }
+.stop-action-menu { padding: 5px; border-radius: 11px; border: 1px solid #dae5dd; background: #fffefa; box-shadow: 0 8px 25px #173d381f; }
+.remove-stop-dialog { width: min(420px, calc(100vw - 28px)); max-width: 420px; border-radius: 18px; background: #fffefa; color: #173d38; }.remove-stop-dialog [data-slot="alert-dialog-description"] { line-height: 1.7; overflow-wrap: anywhere; color: #75847b; }.remove-stop-dialog [data-slot="alert-dialog-footer"] { display: flex; flex-direction: row; justify-content: flex-end; gap: 8px; }.remove-stop-cancel, .remove-stop-confirm { min-height: 40px; padding: 0 14px; border-radius: 9px; font-size: 12px; cursor: pointer; }.remove-stop-cancel { border: 1px solid #dce5dd; color: #45655a; background: #fff; }.remove-stop-confirm { border: 1px solid #b75146; color: #fff; background: #b75146; }.remove-stop-confirm:hover { background: #9f433a; }
 .travel-leg-control { position: relative; margin: 2px 9px 4px 104px; padding-bottom: 4px; }
 .travel-leg-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; }
 .travel-leg-toggle, .travel-leg-bar a { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; border: 0; border-radius: 8px; font-size: 11px; text-decoration: none; }
