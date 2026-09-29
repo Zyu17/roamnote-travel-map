@@ -15,6 +15,13 @@
       "when": 1790426700575,
       "tag": "0001_public_captain_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790650994069,
+      "tag": "0002_heavy_nightmare",
+      "breakpoints": true
     }
   ]
 }

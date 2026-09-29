@@ -3,6 +3,7 @@
 @import "../node_modules/tailwindcss/index.css";
 @import "../node_modules/tw-animate-css/dist/tw-animate.css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
+@import "../components/place-photo.css";
 
 :root {
   --background: #f4f5f0; --foreground: #153a35; --card: #ffffff; --card-foreground: #153a35;

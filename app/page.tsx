@@ -16,6 +16,7 @@ import type { DateRange } from "react-day-picker";
 import { zhCN } from "date-fns/locale";
 import { AMapCanvas, type AMapHandle, type MapItem, type SearchPlace } from "@/components/amap-canvas";
 import { TravelLeg, useTravelRoutes } from "@/components/travel-leg";
+import { PlacePhoto } from "@/components/place-photo";
 import { formatTravelDistance, formatTravelDuration, type TravelMode } from "@/lib/travel-route";
 
 type Category = "sight" | "food" | "stay" | "transit";
@@ -1106,11 +1107,11 @@ export default function Home() {
           {tripOverview && <div className="trip-overview-banner" role="status"><strong>全程总览</strong><span>{days.length} 天 · {tripMapItems.length} 个地点</span><small>点选编号可查看对应日期</small></div>}
           <div className="map-legend">{Object.entries(categoryStyle).map(([key, value]) => { const Icon = value.icon; return <span key={key}><i className={value.className}><Icon size={12} /></i>{value.label}</span>; })}</div>
           {(selected || mapPickedPlace) && <aside className="place-card" aria-live="polite">
-            {selected ? <><div className="place-photo"><img src="/shanghai-cover.png" alt="雨后晨光中的上海梧桐街道" /><button type="button" aria-label="关闭地点详情" onClick={() => setSelectedId(null)}><X size={17} /></button><span>{categoryStyle[selected.category].label}</span></div><div className="place-body">
+            {selected ? <><PlacePhoto key={`${selected.title}:${selected.lnglat.join(",")}`} name={selected.title} lnglat={selected.lnglat} label={categoryStyle[selected.category].label} onClose={() => setSelectedId(null)} /><div className="place-body">
               <div className="place-title-row"><div><h2>{selected.title}</h2><p><MapPin size={14} /> {selected.address}</p></div><button type="button" className={favoriteIds.includes(selected.id) ? "favorite-active" : ""} aria-label="收藏" onClick={() => setFavoriteIds((current) => current.includes(selected.id) ? current.filter((id) => id !== selected.id) : [...current, selected.id])}><Star size={19} fill={favoriteIds.includes(selected.id) ? "currentColor" : "none"} /></button></div>
               <div className="reservation-chip"><Check size={14} /> {selected.meta.includes("已预约") ? "已预约 · 凭证已保存" : `已加入 ${navigationDays[activeDay]?.date}`}</div><p className="place-note">{selected.note}</p>
               <div className="place-actions"><button type="button" onClick={openNavigation}><Navigation size={16} /> 开始导航</button><button type="button" onClick={openEdit}><CalendarDays size={16} /> 编辑安排</button></div>
-            </div></> : mapPickedPlace ? <><div className="place-photo"><img src="/covers/xiamen-coast.jpg" alt="地图地点预览" /><button type="button" aria-label="关闭地点详情" onClick={() => setMapPickedPlace(null)}><X size={17} /></button><span>高德地点</span></div><div className="place-body"><div className="place-title-row"><div><h2>{mapPickedPlace.name}</h2><p><MapPin size={14} /> {mapPickedPlace.address || mapPickedPlace.district || "地图选点"}</p></div></div><div className="reservation-chip"><Check size={14} /> {mapPickedPlace.type || "周边地点"} · 可加入 {navigationDays[activeDay]?.date}</div><p className="place-note">来自高德地图的附近地点信息。加入后可继续修改时间、时长和备注。</p><div className="place-actions"><button type="button" onClick={() => addPlace(mapPickedPlace)}><Plus size={16} /> 加入当天行程</button><button type="button" onClick={openPickedPlaceNavigation}><Navigation size={16} /> 开始导航</button></div></div></> : null}
+            </div></> : mapPickedPlace ? <><PlacePhoto key={`${mapPickedPlace.name}:${mapPickedPlace.lnglat.join(",")}`} name={mapPickedPlace.name} lnglat={mapPickedPlace.lnglat} label="高德地点" onClose={() => setMapPickedPlace(null)} /><div className="place-body"><div className="place-title-row"><div><h2>{mapPickedPlace.name}</h2><p><MapPin size={14} /> {mapPickedPlace.address || mapPickedPlace.district || "地图选点"}</p></div></div><div className="reservation-chip"><Check size={14} /> {mapPickedPlace.type || "周边地点"} · 可加入 {navigationDays[activeDay]?.date}</div><p className="place-note">来自高德地图的附近地点信息。加入后可继续修改时间、时长和备注。</p><div className="place-actions"><button type="button" onClick={() => addPlace(mapPickedPlace)}><Plus size={16} /> 加入当天行程</button><button type="button" onClick={openPickedPlaceNavigation}><Navigation size={16} /> 开始导航</button></div></div></> : null}
           </aside>}
         </section>
       </section>

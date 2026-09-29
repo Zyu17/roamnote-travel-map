@@ -11,6 +11,12 @@
       "migrations_dir": "drizzle"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "roamnote-images"
+    }
+  ],
   "secrets": {
     "required": ["AMAP_JS_KEY", "AMAP_SECURITY_CODE", "AMAP_WEB_SERVICE_KEY", "REGISTRATION_CODE"]
   }

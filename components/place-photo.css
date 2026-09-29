@@ -1,0 +1,12 @@
+.place-photo { background: linear-gradient(135deg, #dbeae2, #edf0df 65%, #e8dec4); }
+.place-photo img { position: absolute; inset: 0; display: block; transition: opacity .2s ease; }
+.place-photo-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; padding-bottom: 10px; color: #73948a; }
+.place-photo-placeholder small { font-size: 11px; }
+.place-photo.is-empty::after, .place-photo.is-loading::after { display: none; }
+.place-photo.is-loading { animation: place-photo-pulse 1.6s ease-in-out infinite; }
+.place-photo-credit { position: absolute; z-index: 2; right: 9px; bottom: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; max-width: 62%; font-size: 9px; line-height: 1.3; color: white; text-shadow: 0 1px 4px #000; }
+.place-photo-credit a { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none; }
+.place-photo-credit a:hover { text-decoration: underline; }
+.place-photo-credit a:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+@keyframes place-photo-pulse { 50% { filter: brightness(1.05); } }
+@media (prefers-reduced-motion: reduce) { .place-photo.is-loading { animation: none; }.place-photo img { transition: none; } }

@@ -5,12 +5,13 @@
 ## 一次性配置
 
 1. 在 Cloudflare 创建 Worker，名称为 `roamnote-travel-map`。
-2. 在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 添加：
-   - `CLOUDFLARE_API_TOKEN`：授予该账号的 Workers 编辑和 D1 编辑权限，以便发布和运行数据库迁移。
+2. 在 Cloudflare R2 创建私有 bucket `roamnote-images`。项目已在 `wrangler.jsonc` 中将它绑定为 `BUCKET`；暂时不要开启 `r2.dev` 公网访问。
+3. 在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 添加：
+   - `CLOUDFLARE_API_TOKEN`：授予该账号的 Workers 编辑和 D1 编辑权限，以便发布和运行数据库迁移。若通过 Actions 批量导入 R2 图片，还需 `Workers R2 Storage: Edit` 权限。
    - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账号 ID。
    - `AMAP_JS_KEY`、`AMAP_SECURITY_CODE`、`AMAP_WEB_SERVICE_KEY`：高德的三项配置。
    - `REGISTRATION_CODE`：邀请注册使用的注册码，支持 4–256 个字符，区分大小写，忽略首尾空白。建议使用至少 6–8 位随机字母数字组合；4 位短码比较容易被猜中。放入 GitHub Actions Secret，绝不要写入仓库。你可私下把同一注册码交给受邀用户；缺少、短于 4 位或长于 256 位时，发布检查会失败。每个网络地址 15 分钟最多提交 5 次邀请码（正确和错误都计入），更换邮箱不能绕过该限制。若注册码外泄，请在 GitHub Actions Secret 中换新并重新发布。
-3. 推送 `main`，Actions 会发布到 `https://roamnote-travel-map.<你的子域>.workers.dev`。
+4. 推送 `main`，Actions 会发布到 `https://roamnote-travel-map.<你的子域>.workers.dev`。
 
 仅修改 GitHub Secret 不会自动更新 Cloudflare。换邀请码后，到 `Actions → Deploy Roamnote to Cloudflare Workers → Run workflow`，选择 `main` 并运行；成功后新邀请码才会在线上生效。
 
@@ -33,3 +34,7 @@
 密码推导在浏览器中运行，避免占用 Workers 免费套餐每次请求的 10 毫秒 CPU 配额。正式发布后仍需实际注册、退出、重新登录并跨浏览器检查同步；若线上出现资源限制错误，应暂停开放使用并排查，不要直接降低哈希强度。
 
 高德 Web 服务 Key 和安全密钥只能作为 GitHub / Cloudflare Secret 保存，不能写进仓库或浏览器代码。
+
+## 地点图片
+
+私有 R2 bucket `roamnote-images` 绑定为 `BUCKET`。图片元数据由 `drizzle/0002_heavy_nightmare.sql` 创建，网站通过 `/api/place-image` 匹配地点、通过 `/media/<图片ID>` 读取已审核图片。采集与导入方法见 [PLACE_IMAGES.md](./PLACE_IMAGES.md)。

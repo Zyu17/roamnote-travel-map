@@ -1,0 +1,62 @@
+[
+  {
+    "id": "shanghai-wukang-mansion",
+    "placeName": "武康大楼",
+    "city": "上海",
+    "names": ["武康大楼", "武康大楼景区", "Wukang Mansion"],
+    "lnglat": [121.435, 31.204],
+    "matchRadius": 1500,
+    "filename": "Wukang Mansion 20250504-1.jpg",
+    "author": "Suicasmo",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "武康大楼的红砖外立面与街道",
+    "focalX": 0.5,
+    "focalY": 0.4
+  },
+  {
+    "id": "shanghai-museum-east",
+    "placeName": "上海博物馆东馆",
+    "city": "上海",
+    "names": ["上海博物馆东馆", "上海博物馆(东馆)", "上博东馆", "Shanghai Museum East"],
+    "lnglat": [121.539, 31.2202],
+    "matchRadius": 3000,
+    "filename": "Shanghai Museum East.jpg",
+    "author": "Alexey Yakovlev",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "alt": "上海博物馆东馆的建筑外观",
+    "focalX": 0.5,
+    "focalY": 0.5
+  },
+  {
+    "id": "shanghai-natural-history-museum",
+    "placeName": "上海自然博物馆",
+    "city": "上海",
+    "names": ["上海自然博物馆", "上海自然博物馆(静安新馆)", "上海自然博物馆静安新馆"],
+    "lnglat": [121.4636, 31.2353],
+    "matchRadius": 1500,
+    "filename": "Shanghai Natural History Museum (New) 04.JPG",
+    "author": "SSYoung",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "alt": "上海自然博物馆新馆的绿植外墙",
+    "focalX": 0.5,
+    "focalY": 0.45
+  },
+  {
+    "id": "shanghai-yu-garden",
+    "placeName": "豫园",
+    "city": "上海",
+    "names": ["豫园", "上海豫园", "豫园景区", "Yu Garden", "Yuyuan Garden"],
+    "lnglat": [121.492, 31.227],
+    "matchRadius": 1200,
+    "filename": "Yu Garden the forbidden city (20573580683).jpg",
+    "author": "Luca Casartelli",
+    "license": "CC BY-SA 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0/",
+    "alt": "上海豫园的园林建筑",
+    "focalX": 0.5,
+    "focalY": 0.45
+  }
+]

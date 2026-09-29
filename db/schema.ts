@@ -1,4 +1,38 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { real } from "drizzle-orm/sqlite-core";
+
+// Public, reviewed destination photos. Original files remain private in R2.
+export const placeImages = sqliteTable("place_images", {
+  id: text("id").primaryKey(),
+  placeName: text("place_name").notNull(),
+  city: text("city").notNull(),
+  longitude: real("longitude").notNull(),
+  latitude: real("latitude").notNull(),
+  matchRadius: integer("match_radius").notNull().default(1500),
+  objectKey: text("object_key").notNull(),
+  contentType: text("content_type").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  focalX: real("focal_x").notNull().default(0.5),
+  focalY: real("focal_y").notNull().default(0.5),
+  alt: text("alt").notNull(),
+  sourcePageUrl: text("source_page_url").notNull(),
+  sourceImageUrl: text("source_image_url").notNull(),
+  author: text("author").notNull(),
+  license: text("license").notNull(),
+  licenseUrl: text("license_url").notNull(),
+  changes: text("changes").notNull(),
+  contentHash: text("content_hash").notNull(),
+  approved: integer("approved", { mode: "boolean" }).notNull().default(false),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [uniqueIndex("place_images_object_key_unique").on(table.objectKey)]);
+
+export const placeImageNames = sqliteTable("place_image_names", {
+  imageId: text("image_id").notNull().references(() => placeImages.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+}, (table) => [
+  uniqueIndex("place_image_names_name_image_unique").on(table.name, table.imageId),
+]);
 
 // The application starts with one JSON snapshot per journey so the current
 // planner can be persisted without losing any locally-created fields. These
