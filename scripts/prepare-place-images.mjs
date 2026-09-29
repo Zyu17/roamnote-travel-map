@@ -14,6 +14,37 @@ const licenseUrls = new Map([
   ["CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
   ["CC BY 2.0", "https://creativecommons.org/licenses/by/2.0/"],
 ]);
+async function downloadApprovedImage(url, id) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: { "User-Agent": "Roamnote/0.1 (https://github.com/Zyu17/roamnote-travel-map)" },
+        signal: AbortSignal.timeout(60000),
+      });
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await new Promise(resolve => setTimeout(resolve, 5000 * (attempt + 1)));
+      continue;
+    }
+    if (response.ok && response.headers.get("content-type")?.startsWith("image/")) {
+      const length = Number(response.headers.get("content-length"));
+      if (Number.isFinite(length) && length > 30_000_000) throw new Error(`Source exceeds 30 MB: ${id}`);
+      const original = Buffer.from(await response.arrayBuffer());
+      if (original.length > 30_000_000) throw new Error(`Source exceeds 30 MB: ${id}`);
+      return original;
+    }
+    if (attempt === 3 || ![429, 502, 503, 504].includes(response.status)) throw new Error(`Download failed (${response.status}): ${id}`);
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, 60000)
+      : 5000 * (attempt + 1);
+    console.log(`Source temporarily unavailable (${response.status}): ${id}; retrying in ${Math.round(delay / 1000)}s`);
+    await response.body?.cancel();
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  throw new Error(`Download failed: ${id}`);
+}
 await mkdir(path.join(output, "originals"), { recursive: true });
 const manifest = [];
 for (const source of sources) {
@@ -27,15 +58,7 @@ for (const source of sources) {
   catch {
     console.log(`Downloading ${source.placeName}`);
     // Approved sources only; no crawling arbitrary URLs or following page instructions.
-    const response = await fetch(sourceImageUrl, {
-      headers: { "User-Agent": "Roamnote/0.1 (https://github.com/Zyu17/roamnote-travel-map)" },
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error(`Download failed (${response.status}): ${source.id}`);
-    const length = Number(response.headers.get("content-length"));
-    if (Number.isFinite(length) && length > 30_000_000) throw new Error(`Source exceeds 30 MB: ${source.id}`);
-    original = Buffer.from(await response.arrayBuffer());
-    if (original.length > 30_000_000) throw new Error(`Source exceeds 30 MB: ${source.id}`);
+    original = await downloadApprovedImage(sourceImageUrl, source.id);
     await writeFile(originalPath, original);
   }
   const metadata = await sharp(original, { limitInputPixels: 60_000_000 }).metadata();
